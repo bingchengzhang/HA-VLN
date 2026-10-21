@@ -1,0 +1,20 @@
+# Only portable project code and repository metadata belong in this repository.
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/.github/
+!/project/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+Thumbs.db

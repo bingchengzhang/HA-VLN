@@ -1,0 +1,53 @@
+# LLaMA-Factory：在决策数据上对 Qwen2.5-VL-7B 做 QLoRA 微调（单张 24 GB 卡可跑）。
+# 在单独的训练环境里运行（scripts/setup_train_env.sh 建的虚拟环境，不是 Habitat 容器）：
+#   llamafactory-cli train configs/train_decision_lora.yaml
+# 路径按 scripts/train_decision.sh 的挂载约定写；直接运行时改成自己的路径。
+# 参数名以较新的 LLaMA-Factory 为准（image_max_pixels）；旧版本对应的是 image_resolution。
+
+### 模型
+model_name_or_path: /weights/Qwen2.5-VL-7B-Instruct      # 必须是原版 bf16，AWQ 量化版不能训练
+image_max_pixels: 112896          # 336 × 336：与推理时 slow.image_side 一致，goal_box 坐标系也因此一致
+trust_remote_code: true
+
+### 方法
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target: all                  # 语言模型的全部线性层
+freeze_vision_tower: true         # 视觉编码器不动：数据量小，动它容易过拟合
+quantization_bit: 4               # QLoRA
+
+### 数据
+dataset_dir: /workspace/decision_data/merged
+dataset: decision_train
+eval_dataset: decision_val
+template: qwen2_vl                # Qwen2-VL 与 Qwen2.5-VL 共用
+cutoff_len: 4096                  # 正文约 1–2k token + 每张图约 144 token × 最多 4 张
+preprocessing_num_workers: 8
+overwrite_cache: true
+
+### 输出
+output_dir: /workspace/lora/nav
+logging_steps: 10
+save_steps: 500
+save_total_limit: 3
+plot_loss: true
+overwrite_output_dir: true
+
+### 训练
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 1.0e-4
+num_train_epochs: 2.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+bf16: true
+gradient_checkpointing: true
+
+### 验证
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 500

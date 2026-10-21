@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+# 数据、权重、运行结果、缓存一律不进 git
+/data/
+/weights/
+/runs/
+/plans/
+/decision_data/
+/lora/
+/llm_cache/
+*.pt
+*.pth
+*.safetensors
+*.zip
+*.partial
+.env
