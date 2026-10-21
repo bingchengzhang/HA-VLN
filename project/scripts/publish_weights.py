@@ -57,6 +57,16 @@ def main():
     api.whoami()  # Fail before hashing or creating a repository when login is missing.
     before = {p.name: (p.stat().st_size, p.stat().st_mtime_ns) for p in files}
     hashes = {p.name: checksum(p) for p in files}
+    sizes = {p.name: p.stat().st_size for p in files}
+    overrides = {}
+    if args.kind == 'adapter':
+        config = json.loads((folder / 'adapter_config.json').read_text())
+        # A training-server absolute path cannot identify the public base model.
+        config['base_model_name_or_path'] = 'Qwen/Qwen2.5-VL-7B-Instruct'
+        overrides['adapter_config.json'] = (json.dumps(config, indent=2) + '\n').encode()
+        for name, content in overrides.items():
+            hashes[name] = hashlib.sha256(content).hexdigest()
+            sizes[name] = len(content)
     if any(before[p.name] != (p.stat().st_size, p.stat().st_mtime_ns) for p in files):
         raise RuntimeError('Source model changed during hashing; retry after export completes')
     card = f'''---
@@ -84,9 +94,11 @@ SHA256SUMS contains the checksums of the published inference files.
     api.create_repo(args.repo, repo_type='model', private=False, exist_ok=True)
     # Pass exact names so training logs and checkpoints cannot enter the model repository.
     api.upload_folder(repo_id=args.repo, repo_type='model', folder_path=folder,
-                      allow_patterns=[p.name for p in files])
+                      allow_patterns=[p.name for p in files if p.name not in overrides])
     with tempfile.TemporaryDirectory() as temporary:
         metadata = Path(temporary)
+        for name, content in overrides.items():
+            (metadata / name).write_bytes(content)
         (metadata / 'README.md').write_text(card, encoding='utf-8')
         (metadata / 'SHA256SUMS').write_text(
             ''.join(f'{hashes[p.name]}  {p.name}\n' for p in files), encoding='utf-8')
@@ -94,7 +106,7 @@ SHA256SUMS contains the checksums of the published inference files.
     remote = {p.rfilename: p for p in api.model_info(args.repo, files_metadata=True).siblings}
     for path in files:
         item = remote.get(path.name)
-        if item is None or item.size != path.stat().st_size:
+        if item is None or item.size != sizes[path.name]:
             raise RuntimeError(f'Remote size verification failed: {path.name}')
         if item.lfs and item.lfs.sha256 != hashes[path.name]:
             raise RuntimeError(f'Remote SHA256 verification failed: {path.name}')

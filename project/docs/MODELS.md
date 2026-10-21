@@ -22,6 +22,14 @@ hf download bingchengzhang/HA-VLN-nav-r0-lora --local-dir /path/to/nav-r0-lora
 
 LoRA 需要配合上面的原版 Qwen 基座使用，不能作为完整模型直接加载。仓库内的 `SHA256SUMS` 可用于下载后校验。
 
+已有 LLaMA-Factory 环境时，可以直接从公开仓库重建完整模型，无需服务器上的训练目录：
+
+```bash
+llamafactory-cli export configs/export_huggingface.yaml
+```
+
+该命令下载官方基座和已发布的 LoRA，在本机合并并导出到 `project/weights/Qwen2.5-VL-7B-nav-r0`；需要足够的内存与磁盘空间。
+
 ## 上传
 
 在能读取上述权重目录的机器登录 Hugging Face：
