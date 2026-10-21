@@ -14,7 +14,7 @@ GitHub 保存实现与配置；Hugging Face 保存本项目训练后的模型。
 ## 下载与发布状态
 
 - [r0 LoRA 权重](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)：已上传，文件大小和 LFS SHA256 校验通过。
-- r0 完整合并模型：上传处理中，尚未完成远端校验。
+- r0 完整合并模型不重复托管；使用官方基座与 LoRA，按下方配置在本机合并。
 
 ```bash
 hf download bingchengzhang/HA-VLN-nav-r0-lora --local-dir /path/to/nav-r0-lora
