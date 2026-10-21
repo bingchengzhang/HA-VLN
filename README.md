@@ -2,7 +2,16 @@
 
 RoboWorld 2026 Track 2（HA-VLN 2.0）分层视觉语言导航智能体。
 
-实现、安装与运行方法见 [项目说明](project/README.md)，训练流程见 [训练文档](project/docs/TRAINING.md)。所有项目命令均从 `project/` 目录执行。
+实现、安装与运行方法见 [项目说明](project/README.md)。所有项目命令均从 `project/` 目录执行。
+
+## 架构与闭环
+
+- [系统架构](project/docs/ARCHITECTURE.md)：感知、建图、候选规划、模型决策与动作执行。
+- [训练与评估闭环](project/docs/CLOSED_LOOP.md)：专家采集、审核、微调、离线评估与真实仿真回测。
+- [模型权重发布](project/docs/MODELS.md)：合并模型与 LoRA 的范围、发布方法及当前状态。
+- [运行与训练说明](project/docs/TRAINING.md)：现有运行环境中的具体命令。
+
+GitHub 保存代码、架构与闭环流程；训练权重放在 Hugging Face。环境文件、数据集、运行结果不上传。
 
 ## 本地验证
 
