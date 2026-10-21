@@ -11,7 +11,16 @@ GitHub 保存实现与配置；Hugging Face 保存本项目训练后的模型。
 
 基座：[Qwen/Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)。
 
-**发布状态：等待 Hugging Face 登录，尚未上传，暂无可用模型仓库链接。**
+## 下载与发布状态
+
+- [r0 LoRA 权重](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)：已上传，文件大小和 LFS SHA256 校验通过。
+- r0 完整合并模型：上传处理中，尚未完成远端校验。
+
+```bash
+hf download bingchengzhang/HA-VLN-nav-r0-lora --local-dir /path/to/nav-r0-lora
+```
+
+LoRA 需要配合上面的原版 Qwen 基座使用，不能作为完整模型直接加载。仓库内的 `SHA256SUMS` 可用于下载后校验。
 
 ## 上传
 
