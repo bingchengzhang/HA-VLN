@@ -13,6 +13,8 @@ RoboWorld 2026 Track 2（HA-VLN 2.0）分层视觉语言导航智能体。
 
 GitHub 保存代码、架构与闭环流程；训练权重放在 Hugging Face。环境文件、数据集、运行结果不上传。
 
+已发布权重：[HA-VLN nav r0 LoRA](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)，配合官方 Qwen2.5-VL-7B-Instruct 使用。[合并配置](project/configs/export_huggingface.yaml)可重建完整模型。
+
 ## 本地验证
 
 ```bash
