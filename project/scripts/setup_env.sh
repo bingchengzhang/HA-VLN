@@ -18,7 +18,7 @@ pip freeze | grep -iE '^(torch|torchvision|numpy|opencv-python|opencv-python-hea
 echo "钉住的版本："; cat "$CONSTRAINTS"
 
 pip install -c "$CONSTRAINTS" "ultralytics==8.2.103" scipy pillow
-pip check || echo "（pip check 有警告时先别慌，把输出发出来看）"
+pip check || echo "pip check 有警告。先核对输出，确认没有替换 torch、numpy 或 habitat。"
 
 python - <<'PY'
 import torch, ultralytics, scipy

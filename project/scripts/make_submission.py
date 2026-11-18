@@ -6,6 +6,7 @@
 检查规则与官方 export_cma_submission.py 的 check_rows 相同：
 ID 覆盖完整且不重复、动作合法、长度 1–500、STOP 只能在末尾、不足 500 步必须以 STOP 结尾。
 """
+
 import argparse
 import gzip
 import json
@@ -27,8 +28,12 @@ def check_rows(rows, expected):
         raise ValueError(f"缺少 {len(missing)} 条 episode，例如 {sorted(missing)[:5]}；先把 rollout 跑完")
     for r in rows:
         a = r["actions"]
-        if (not 1 <= len(a) <= 500 or any(x not in ACTIONS for x in a)
-                or (len(a) < 500 and a[-1] != "STOP") or "STOP" in a[:-1]):
+        if (
+            not 1 <= len(a) <= 500
+            or any(x not in ACTIONS for x in a)
+            or (len(a) < 500 and a[-1] != "STOP")
+            or "STOP" in a[:-1]
+        ):
             raise ValueError(f"episode {r['episode_id']} 的动作序列不合法")
 
 
@@ -45,8 +50,10 @@ def main():
     for split in args.splits:
         rows = []
         for shard in sorted((run / "shards").glob(f"{split}-*.json")):
-            rows += [{"episode_id": r["episode_id"], "actions": r["actions"]}
-                     for r in json.loads(shard.read_text())["rows"]]
+            rows += [
+                {"episode_id": r["episode_id"], "actions": r["actions"]}
+                for r in json.loads(shard.read_text())["rows"]
+            ]
         with gzip.open(Path(args.data_root) / f"HA-R2R/{split}/{split}.json.gz", "rt") as f:
             expected = [str(e["episode_id"]) for e in json.load(f)["episodes"]]
         check_rows(rows, expected)
@@ -59,13 +66,17 @@ def main():
     partial = run / "submission.zip.partial"
     with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for n in names:
-            z.write(run / n, arcname=n)          # 不带父目录，官方会拒绝嵌套路径
+            z.write(run / n, arcname=n)  # 不带父目录，官方会拒绝嵌套路径
     # 原生环境没有 havln-validate 命令时，用 HAVLN_VALIDATE 指定等价命令（见 docs/TRAINING.md「提交」）
-    validator = os.environ.get("HAVLN_VALIDATE", "").split() or (["havln-validate"] if shutil.which("havln-validate") else [])
+    validator = os.environ.get("HAVLN_VALIDATE", "").split() or (
+        ["havln-validate"] if shutil.which("havln-validate") else []
+    )
     if validator:
         subprocess.run([*validator, str(partial)], check=True)
     else:
-        print("警告：找不到官方校验器 havln-validate，也没设置 HAVLN_VALIDATE；只做了本地格式检查，提交前务必补上官方校验")
+        print(
+            "警告：找不到官方校验器 havln-validate，也没设置 HAVLN_VALIDATE；只做了本地格式检查，提交前务必补上官方校验"
+        )
     os.replace(partial, run / "submission.zip")
     print(f"已生成 {run / 'submission.zip'}，上传到 CodaBench")
 

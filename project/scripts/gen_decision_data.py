@@ -21,14 +21,12 @@
   python scripts/gen_decision_data.py --merge /workspace/decision_data/r0 /workspace/decision_data/r1 \\
       --out /workspace/decision_data/merged
 """
+
 import argparse
 import json
-import os
 import random
 import sys
 from pathlib import Path
-
-import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -38,7 +36,7 @@ from havln_agent.config import AgentCfg
 from havln_agent.oracle import OracleDecider
 from havln_agent.slow.llm_client import ChatClient, prepare_image
 from havln_agent.slow.prompts import DECIDE_SYSTEM
-from havln_agent.slow.slow_loop import SlowLoop, PlanStore, Decision
+from havln_agent.slow.slow_loop import Decision, PlanStore, SlowLoop
 from havln_agent.slow.view_memory import build_images
 
 
@@ -60,23 +58,44 @@ class Recorder:
         pose = ctx["pose"]
         label = self.oracle.label(agent, cands, pose)
         allow_observe = not agent.observed_last and agent.n_observes < c.decision.max_observes
-        if label.observe and not allow_observe:            # 与推理时同一条规则：不允许看时专家也不能要求看
+        if label.observe and not allow_observe:  # 与推理时同一条规则：不允许看时专家也不能要求看
             label.observe = None
 
-        images, captions = build_images(ctx["rgb"], pose, cands, agent.memory, c.sensor.hfov_deg, floor=agent.floor)
-        text = agent.slow.build_text(agent.instruction, agent.plan, agent.sub_idx, cands,
-                                     agent.humans.describe(pose, agent.feet), agent.step,
-                                     agent.trig.st.traveled_m, captions, True, agent.note)
+        images, captions = build_images(
+            ctx["rgb"], pose, cands, agent.memory, c.sensor.hfov_deg, floor=agent.floor
+        )
+        text = agent.slow.build_text(
+            agent.instruction,
+            agent.plan,
+            agent.sub_idx,
+            cands,
+            agent.humans.describe(pose, agent.feet),
+            agent.step,
+            agent.trig.st.traveled_m,
+            captions,
+            True,
+            agent.note,
+        )
         self._valid_ids = [k.cid for k in cands]
         valid = label.choose is not None or label.stop or label.observe
         if valid:
             self._write(text, images, captions, label)
 
-        if self.dagger:                                     # 当前模型决定实际走哪
-            return agent.slow.decide(agent.instruction, agent.plan, agent.sub_idx, cands,
-                                     agent.humans.describe(pose, agent.feet), agent.step,
-                                     agent.trig.st.traveled_m, images, captions,
-                                     prev_yaw=agent.prev_yaw, allow_observe=allow_observe, note=agent.note)
+        if self.dagger:  # 当前模型决定实际走哪
+            return agent.slow.decide(
+                agent.instruction,
+                agent.plan,
+                agent.sub_idx,
+                cands,
+                agent.humans.describe(pose, agent.feet),
+                agent.step,
+                agent.trig.st.traveled_m,
+                images,
+                captions,
+                prev_yaw=agent.prev_yaw,
+                allow_observe=allow_observe,
+                note=agent.note,
+            )
         viable = [k for k in cands if k.path is not None]
         if not label.stop and not label.observe and len(viable) > 1 and self.rng.random() < self.perturb:
             wrong = self.rng.choice([k.cid for k in viable if k.cid != label.choose])
@@ -92,13 +111,24 @@ class Recorder:
         # 与推理时消息结构一致：正文，然后"说明 + 图片"交替
         user = text + "\n" + "\n".join(f"{cap}\n<image>" for cap in captions)
         answer = dict(label.to_json(), reason="follow the instruction")
-        self.rows.append({"scan": self.scan, "episode_id": self.episode_id,
-                          "raw": {"text": text, "captions": captions, "label": label.to_json(),
-                                  "valid_ids": self._valid_ids},
-                          "messages": [
-            {"role": "system", "content": DECIDE_SYSTEM},
-            {"role": "user", "content": user},
-            {"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}], "images": paths})
+        self.rows.append(
+            {
+                "scan": self.scan,
+                "episode_id": self.episode_id,
+                "raw": {
+                    "text": text,
+                    "captions": captions,
+                    "label": label.to_json(),
+                    "valid_ids": self._valid_ids,
+                },
+                "messages": [
+                    {"role": "system", "content": DECIDE_SYSTEM},
+                    {"role": "user", "content": user},
+                    {"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)},
+                ],
+                "images": paths,
+            }
+        )
         self.k += 1
 
 
@@ -143,41 +173,64 @@ def write_split(sources, out: Path, val_frac=0.05, seed=0, reference=None):
         if len(scans) < 2:
             raise SystemExit("样本只来自一个场景，无法按场景留出验证集；多采几条 episode 再划分")
         random.Random(seed).shuffle(scans)
-        held = set(scans[:max(1, int(len(scans) * val_frac))])
+        held = set(scans[: max(1, int(len(scans) * val_frac))])
         val_rows = [r for r in rows if _scene(r) in held]
     train_rows = [r for r in rows if _scene(r) not in held]
     if not train_rows or not val_rows:
         raise SystemExit("训练或验证为空")
 
-    strip = lambda r: {"messages": r["messages"], "images": r["images"]}
-    dump = lambda name, v: (out / name).write_text(json.dumps(v, ensure_ascii=False))
+    def strip(row):
+        return {"messages": row["messages"], "images": row["images"]}
+
+    def dump(name, value):
+        (out / name).write_text(json.dumps(value, ensure_ascii=False))
+
     dump("decision_train.json", [strip(r) for r in train_rows])
     dump("decision_val.json", [strip(r) for r in val_rows])
-    dump("decision_val_full.json", val_rows)                         # 下一轮 --reference 用
+    dump("decision_val_full.json", val_rows)  # 下一轮 --reference 用
     # 离线评测用：原始 prompt 正文、图片说明和标签（scripts/eval_decision_offline.py）
     dump("decision_val_raw.json", [dict(r["raw"], images=r["images"]) for r in val_rows if "raw" in r])
     (out / "heldout_scans.json").write_text(json.dumps(sorted(held), indent=2))
-    info = {name: {"file_name": f"{name}.json", "formatting": "sharegpt",
-                   "columns": {"messages": "messages", "images": "images"},
-                   "tags": {"role_tag": "role", "content_tag": "content", "user_tag": "user",
-                            "assistant_tag": "assistant", "system_tag": "system"}}
-            for name in ("decision_train", "decision_val")}
+    info = {
+        name: {
+            "file_name": f"{name}.json",
+            "formatting": "sharegpt",
+            "columns": {"messages": "messages", "images": "images"},
+            "tags": {
+                "role_tag": "role",
+                "content_tag": "content",
+                "user_tag": "user",
+                "assistant_tag": "assistant",
+                "system_tag": "system",
+            },
+        }
+        for name in ("decision_train", "decision_val")
+    }
     (out / "dataset_info.json").write_text(json.dumps(info, indent=2))
     kinds = {"choose": 0, "stop": 0, "observe": 0}
     for r in train_rows:
         a = json.loads(r["messages"][-1]["content"])
         kinds["stop" if a["stop"] else "observe" if a["observe"] else "choose"] += 1
-    manifest = {"sources": [str(x) for x in sources], "reference": str(reference) if reference else None,
-                "seed": seed, "train": len(train_rows), "val": len(val_rows),
-                "heldout_scans": sorted(held), "train_label_kinds": kinds}
+    manifest = {
+        "sources": [str(x) for x in sources],
+        "reference": str(reference) if reference else None,
+        "seed": seed,
+        "train": len(train_rows),
+        "val": len(val_rows),
+        "heldout_scans": sorted(held),
+        "train_label_kinds": kinds,
+    }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
-    print(f"训练 {len(train_rows)}，验证 {len(val_rows)}（验证场景 {len(held)} 个"
-          f"{'，沿用参考划分' if reference else ''}）；训练标签分布 {kinds}")
+    print(
+        f"训练 {len(train_rows)}，验证 {len(val_rows)}（验证场景 {len(held)} 个"
+        f"{'，沿用参考划分' if reference else ''}）；训练标签分布 {kinds}"
+    )
 
 
 def sample_episodes(data_root, limit, seed):
     """与正式采集完全相同的抽样：同一个 seed 抽到同一批 episode。"""
     from havln_agent.rollout import load_episodes
+
     rng = random.Random(seed)
     eps = load_episodes(data_root, "train")
     rng.shuffle(eps)
@@ -185,7 +238,7 @@ def sample_episodes(data_root, limit, seed):
 
 
 def main():
-    from havln_agent.adapters.habitat_env import make_env, EpisodeRunner, PrivilegedView
+    from havln_agent.adapters.habitat_env import EpisodeRunner, PrivilegedView, make_env
     from havln_agent.perception.human_seg import build_segmenter
     from havln_agent.rollout import make_jobs
 
@@ -203,8 +256,11 @@ def main():
     p.add_argument("--seg-weights", default="/weights/yolov8m-seg.pt")
     p.add_argument("--merge", nargs="+", help="只合并这些轮次的数据目录并划分，不跑仿真")
     p.add_argument("--reference", default=None, help="与 --merge 连用：沿用这个划分目录的验证场景和验证题")
-    p.add_argument("--list-episodes", action="store_true",
-                   help="只把这次会抽到的 episode id 写到 --out（一行一个），给 compile_instructions 预先拆指令用")
+    p.add_argument(
+        "--list-episodes",
+        action="store_true",
+        help="只把这次会抽到的 episode id 写到 --out（一行一个），给 compile_instructions 预先拆指令用",
+    )
     args = p.parse_args()
 
     out = Path(args.out)
@@ -219,8 +275,13 @@ def main():
     cfg = AgentCfg.from_json(args.cfg)
     eps, rng = sample_episodes(args.data_root, args.limit, args.seed)
     rec = Recorder(cfg, out, args.perturb, args.dagger, rng)
-    seg = build_segmenter("yolo", args.seg_weights, device=f"cuda:{args.gpu}",
-                          conf=cfg.human.det_conf, min_pixels=cfg.human.min_mask_pixels)
+    seg = build_segmenter(
+        "yolo",
+        args.seg_weights,
+        device=f"cuda:{args.gpu}",
+        conf=cfg.human.det_conf,
+        min_pixels=cfg.human.min_mask_pixels,
+    )
     client = ChatClient(cfg.slow) if args.dagger else None
     plans = PlanStore(args.plans)
     jobs = make_jobs(eps, "train")
@@ -239,7 +300,9 @@ def main():
             agent = HierarchicalAgent(cfg, seg, SlowLoop(cfg, client), plans, decision_override=rec)
             for ep in episodes:
                 obs = runner.reset()
-                rec.new_episode(OracleDecider(cfg, priv.reference_path_xyh(), priv.goal_xyh()), ep.episode_id, job["key"])
+                rec.new_episode(
+                    OracleDecider(cfg, priv.reference_path_xyh(), priv.goal_xyh()), ep.episode_id, job["key"]
+                )
                 agent.reset(ep.episode_id, EpisodeRunner.instruction(obs, ep), runner.pose(), runner.height())
                 for _ in range(500):
                     action = agent.act(obs["rgb"], obs["depth"], runner.pose(), runner.now(), runner.height())

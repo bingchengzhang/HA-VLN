@@ -10,6 +10,7 @@
   FALLBACK       距上次决策超过 llm_fallback_steps 步
 另有 OVERRUN：走过的距离远超这条指令"应有"的路径长度，说明可能走过头，强制问一次。
 """
+
 import math
 from dataclasses import dataclass
 from typing import List, Optional
@@ -22,11 +23,29 @@ from .grid_search import PlanGrid
 
 # 指令里的地标词 → YOLO（COCO）类别。检测到对应类别，就说明当前子目标"可能已完成"，值得问一次
 LANDMARK_TO_COCO = {
-    "sofa": "couch", "couch": "couch", "bed": "bed", "bedroom": "bed", "toilet": "toilet", "bathroom": "toilet",
-    "tv": "tv", "television": "tv", "chair": "chair", "table": "dining table", "dining": "dining table",
-    "sink": "sink", "fridge": "refrigerator", "refrigerator": "refrigerator", "kitchen": "refrigerator",
-    "oven": "oven", "microwave": "microwave", "plant": "potted plant", "clock": "clock", "vase": "vase",
-    "laptop": "laptop", "book": "book", "bench": "bench",
+    "sofa": "couch",
+    "couch": "couch",
+    "bed": "bed",
+    "bedroom": "bed",
+    "toilet": "toilet",
+    "bathroom": "toilet",
+    "tv": "tv",
+    "television": "tv",
+    "chair": "chair",
+    "table": "dining table",
+    "dining": "dining table",
+    "sink": "sink",
+    "fridge": "refrigerator",
+    "refrigerator": "refrigerator",
+    "kitchen": "refrigerator",
+    "oven": "oven",
+    "microwave": "microwave",
+    "plant": "potted plant",
+    "clock": "clock",
+    "vase": "vase",
+    "laptop": "laptop",
+    "book": "book",
+    "bench": "bench",
 }
 
 
@@ -59,7 +78,7 @@ def count_openings(grid: PlanGrid, pose, radius: float, min_gap_deg: float) -> i
 
 @dataclass
 class DecisionState:
-    last_call_step: int = -10 ** 6
+    last_call_step: int = -(10**6)
     segment_start: tuple = (0.0, 0.0)
     prev_openings: Optional[int] = None
     traveled_m: float = 0.0
@@ -97,10 +116,13 @@ class DecisionTrigger:
         if segment_done:
             return "SEGMENT_DONE"
         moved = math.hypot(pose[0] - self.st.segment_start[0], pose[1] - self.st.segment_start[1])
-        if new_opening and moved > 0.5:          # 刚出发时地图在补全，缺口数会抖，不算岔口
+        if new_opening and moved > 0.5:  # 刚出发时地图在补全，缺口数会抖，不算岔口
             return "JUNCTION"
-        if (self.expected_path_m and not self._overrun_fired
-                and self.st.traveled_m > dc.overrun_factor * self.expected_path_m):
+        if (
+            self.expected_path_m
+            and not self._overrun_fired
+            and self.st.traveled_m > dc.overrun_factor * self.expected_path_m
+        ):
             self._overrun_fired = True
             return "OVERRUN"
         if step - self.st.last_call_step >= dc.llm_fallback_steps:
@@ -121,8 +143,14 @@ def subgoal_may_complete(subgoal: Optional[dict], detected_labels: set, n_visibl
     return False
 
 
-def need_llm_call(reason: str, cands: List[Candidate], may_complete: bool, new_opening: bool,
-                  final_subgoal: bool = False, skipped_last: bool = False) -> bool:
+def need_llm_call(
+    reason: str,
+    cands: List[Candidate],
+    may_complete: bool,
+    new_opening: bool,
+    final_subgoal: bool = False,
+    skipped_last: bool = False,
+) -> bool:
     """门控：只有"确实没得选"时才跳过，而且不能连续跳过。
 
     必须调用的情况：

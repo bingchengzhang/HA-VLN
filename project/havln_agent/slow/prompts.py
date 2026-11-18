@@ -5,6 +5,7 @@
 
 HA-R2R 指令是英文，prompt 也用英文，模型理解更稳。输出一律是 JSON，字段在下面写死。
 """
+
 import json
 
 COMPILE_SYSTEM = """You convert indoor navigation instructions into an ordered list of subgoals for a robot.
@@ -19,15 +20,26 @@ Rules:
 Reply with JSON only."""
 
 COMPILE_SCHEMA = {
-    "subgoals": [{"id": 0, "action": "exit|enter|pass|turn_left|turn_right|go_straight|go_up|go_down|stop",
-                  "landmark": "str", "ref_human": False, "done_when": "str"}],
+    "subgoals": [
+        {
+            "id": 0,
+            "action": "exit|enter|pass|turn_left|turn_right|go_straight|go_up|go_down|stop",
+            "landmark": "str",
+            "ref_human": False,
+            "done_when": "str",
+        }
+    ],
     "goal": {"landmark": "str", "relation": "str"},
 }
 
 
 def compile_user(instruction: str) -> str:
-    return ("Instruction:\n" + instruction.strip() +
-            "\n\nReturn JSON with this shape:\n" + json.dumps(COMPILE_SCHEMA, ensure_ascii=False))
+    return (
+        "Instruction:\n"
+        + instruction.strip()
+        + "\n\nReturn JSON with this shape:\n"
+        + json.dumps(COMPILE_SCHEMA, ensure_ascii=False)
+    )
 
 
 DECIDE_SYSTEM = """You are the planner of a robot that follows a navigation instruction inside a house with people.
@@ -52,23 +64,40 @@ Reply with JSON only: {"choose": <candidate id or null>, "observe": <"left"|"rig
 "subgoal_done": <bool>, "stop": <bool>, "goal_box": <[x1, y1, x2, y2] or null>, "reason": "<one short sentence>"}"""
 
 
-def decide_user(instruction: str, plan: dict, sub_idx: int, cands: list, humans: list,
-                step: int, max_steps: int, traveled_m: float, image_notes: list, note: str = None) -> str:
+def decide_user(
+    instruction: str,
+    plan: dict,
+    sub_idx: int,
+    cands: list,
+    humans: list,
+    step: int,
+    max_steps: int,
+    traveled_m: float,
+    image_notes: list,
+    note: str = None,
+) -> str:
     subgoals = plan.get("subgoals", [])
     lines = [
-        "Instruction:", instruction.strip(), "",
+        "Instruction:",
+        instruction.strip(),
+        "",
         "Subgoal plan:",
     ]
     for k, sg in enumerate(subgoals):
         mark = "  <-- current" if k == sub_idx else ("  (done)" if k < sub_idx else "")
-        lines.append(f"  {k}. {sg.get('action', '')} {sg.get('landmark', '')} | done when: {sg.get('done_when', '')}{mark}")
+        lines.append(
+            f"  {k}. {sg.get('action', '')} {sg.get('landmark', '')} | done when: {sg.get('done_when', '')}{mark}"
+        )
     goal = plan.get("goal", {})
-    lines += [f"Final goal: {goal.get('relation', '')} {goal.get('landmark', '')}", "",
-              f"Progress: step {step} of {max_steps}, walked {traveled_m:.1f} m so far.", ""]
+    lines += [
+        f"Final goal: {goal.get('relation', '')} {goal.get('landmark', '')}",
+        "",
+        f"Progress: step {step} of {max_steps}, walked {traveled_m:.1f} m so far.",
+        "",
+    ]
     if note:
         lines += ["Note: " + note, ""]
-    lines += [
-              "Candidate directions (bearing: positive = left, 0 = straight ahead):"]
+    lines += ["Candidate directions (bearing: positive = left, 0 = straight ahead):"]
     for c in cands:
         lines.append("  " + json.dumps(c, ensure_ascii=False))
     lines.append("")

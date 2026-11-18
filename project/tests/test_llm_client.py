@@ -2,6 +2,7 @@
 
 不需要真模型，验证的是 vLLM / DeepSeek 接口这一侧的代码。运行：python3 tests/test_llm_client.py
 """
+
 import base64
 import io
 import json
@@ -14,12 +15,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from PIL import Image
-
 from havln_agent.config import AgentCfg
 from havln_agent.planning.candidates import Candidate
 from havln_agent.slow.llm_client import ChatClient
 from havln_agent.slow.slow_loop import SlowLoop
+from PIL import Image
 
 SEEN = []
 
@@ -44,12 +44,29 @@ def test_vlm_request_and_cache():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeOpenAI)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory() as cache:
-        cfg = AgentCfg.from_dict({"slow": {"base_url": f"http://127.0.0.1:{srv.server_port}/v1",
-                                           "cache_dir": cache, "model": "qwen-vl"}})
+        cfg = AgentCfg.from_dict(
+            {
+                "slow": {
+                    "base_url": f"http://127.0.0.1:{srv.server_port}/v1",
+                    "cache_dir": cache,
+                    "model": "qwen-vl",
+                }
+            }
+        )
         client = ChatClient(cfg.slow)
         slow = SlowLoop(cfg, client)
-        cands = [Candidate(cid=k, bearing_deg=b, abs_yaw=0.0, endpoint=(2, k), straight_m=2.0,
-                           path=[(0, 0), (2, k)], leads_to_unknown=np.bool_(True)) for k, b in ((0, 30), (1, 0))]
+        cands = [
+            Candidate(
+                cid=k,
+                bearing_deg=b,
+                abs_yaw=0.0,
+                endpoint=(2, k),
+                straight_m=2.0,
+                path=[(0, 0), (2, k)],
+                leads_to_unknown=np.bool_(True),
+            )
+            for k, b in ((0, 30), (1, 0))
+        ]
         plan = {"subgoals": [{"action": "go_straight", "landmark": "hall", "done_when": "x"}], "goal": {}}
         imgs = [np.full((224, 224, 3), 128, np.uint8), np.zeros((224, 224, 3), np.uint8)]
         caps = ["Current view.", "Earlier view."]
@@ -63,10 +80,9 @@ def test_vlm_request_and_cache():
         assert Image.open(io.BytesIO(raw)).size == (cfg.slow.image_side, cfg.slow.image_side)
         assert body["temperature"] == 0.0 and body["model"] == "qwen-vl"
         n = len(SEEN)
-        slow.decide("walk", plan, 0, cands, [], 3, 1.0, imgs, caps)      # 同样的输入：命中缓存，不再发请求
+        slow.decide("walk", plan, 0, cands, [], 3, 1.0, imgs, caps)  # 同样的输入：命中缓存，不再发请求
         assert len(SEEN) == n and client.n_cache_hits == 1
     srv.shutdown()
-
 
 
 def test_compile_uses_long_budget_and_retries_without_cache():
@@ -81,7 +97,7 @@ def test_compile_uses_long_budget_and_retries_without_cache():
         def chat(self, system, text, images=None, image_captions=None, max_tokens=None, use_cache=True):
             self.calls.append((max_tokens, use_cache))
             if len(self.calls) == 1:
-                return '{"subgoals": [{"action": "exit", "landmark": "bedr'      # 被截断
+                return '{"subgoals": [{"action": "exit", "landmark": "bedr'  # 被截断
             return '{"subgoals": [{"action": "exit", "landmark": "bedroom"}], "goal": {"landmark": "sofa"}}'
 
     c = FakeClient()

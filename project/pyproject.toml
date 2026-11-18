@@ -1,0 +1,17 @@
+[tool.ruff]
+target-version = "py38"
+line-length = 110
+src = ["havln_agent", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = [
+    "E501", # 中文注释和 prompt 本来就长
+    "E402", # 脚本先把项目根加进 sys.path，再导入本包
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"

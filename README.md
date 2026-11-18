@@ -1,34 +1,35 @@
 # HA-VLN
 
-RoboWorld 2026 Track 2（HA-VLN 2.0）分层视觉语言导航智能体。
+RoboWorld 2026 Track 2 的分层视觉语言导航智能体（HA-VLN 2.0）。
 
-实现、安装与运行方法见 [项目说明](project/README.md)。所有项目命令均从 `project/` 目录执行。
+几何模块负责建图、候选路线和安全约束。视觉语言模型只在决策点选择候选、判断子目标是否完成，以及是否停止。代码和流程在本仓库，训练权重在 Hugging Face。数据集、环境、运行结果和密钥不入库。
 
-## 架构与闭环
+已发布权重：[HA-VLN nav r0 LoRA](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)，配合 [Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)。完整模型用 [合并配置](project/configs/export_huggingface.yaml) 在本机导出。r0 在 20 条路线上的闭环成功率为 0，见 [闭环说明](project/docs/CLOSED_LOOP.md)。
 
-- [系统架构](project/docs/ARCHITECTURE.md)：感知、建图、候选规划、模型决策与动作执行。
-- [训练与评估闭环](project/docs/CLOSED_LOOP.md)：专家采集、审核、微调、离线评估与真实仿真回测。
-- [模型权重发布](project/docs/MODELS.md)：合并模型与 LoRA 的范围、发布方法及当前状态。
-- [运行与训练说明](project/docs/TRAINING.md)：现有运行环境中的具体命令。
+## 文档
 
-GitHub 保存代码、架构与闭环流程；训练权重放在 Hugging Face。环境文件、数据集、运行结果不上传。
+- [使用说明](project/README.md)：安装、运行、训练和评测。
+- [系统架构](project/docs/ARCHITECTURE.md)
+- [训练与评估闭环](project/docs/CLOSED_LOOP.md)
+- [模型权重](project/docs/MODELS.md)
+- [服务器训练操作](project/docs/TRAINING.md)
 
-已发布权重：[HA-VLN nav r0 LoRA](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)，配合官方 Qwen2.5-VL-7B-Instruct 使用。[合并配置](project/configs/export_huggingface.yaml)可重建完整模型。
+命令都在 `project/` 下执行。
 
-## 本地验证
+## 本地测试
 
 ```bash
 cd project
-python -m pip install numpy scipy pillow pytest
+python -m pip install numpy scipy pillow pytest ruff
+python -m ruff check . && python -m ruff format --check .
 python -m pytest tests -q
 ```
 
-这些测试不需要 Habitat；实际仿真、GPU 推理和训练仍需要项目说明中的运行环境。
+这些测试不需要 Habitat。仿真、GPU 推理和训练需要使用说明里的运行环境。
 
-## 仓库维护
+## 维护
 
-- `main` 保存可追溯的代码版本；功能修改使用 `codex/<描述>` 或其他有意义的分支，通过 Pull Request 合并。
-- Pull Request 自动执行测试；合并前检查测试结果与代码差异。
-- 数据集、模型权重、训练输出、API 密钥和本机服务器访问脚本不上传。
-- 外层运行记录、补丁和结果保留在本地；版本控制的实现位于 `project/`。
-- 服务器通过拉取仓库更新代码；不要将服务器的临时修改作为唯一副本。
+- `main` 保存可追溯的代码。功能修改走分支和 Pull Request。
+- Pull Request 会跑上面的检查和测试。
+- 不提交数据集、权重、训练输出、密钥，以及只在某台机器上使用的访问脚本。
+- 服务器通过拉取仓库更新代码。

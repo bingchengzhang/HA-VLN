@@ -11,6 +11,7 @@
   $HRUN scripts/seg_gt_smoke.py --data-root "$DATA" --source-root "$SRC" --gpu 0 \
       --seg-weights "$ZBC/weights/yolov8m-seg.pt" --out "$ZBC/workspace/diag/seg-smoke"
 """
+
 import argparse
 import json
 import sys
@@ -21,10 +22,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from havln_agent.adapters.habitat_env import make_env, EpisodeRunner
+from havln_agent.adapters.habitat_env import EpisodeRunner, make_env
 from havln_agent.rollout import load_episodes
 
-HUMAN_BASE = 1_000_000          # 远大于 MP3D 物体实例编号，避免与场景语义冲突
+HUMAN_BASE = 1_000_000  # 远大于 MP3D 物体实例编号，避免与场景语义冲突
 
 
 def hook_human_ids(sim):
@@ -37,7 +38,7 @@ def hook_human_ids(sim):
         stats["added"] += 1
         try:
             sim.set_object_semantic_id(HUMAN_BASE + int(oid), oid)
-        except Exception as e:                       # 记下来，不吞掉：失败就说明方案 A 走不通
+        except Exception as e:  # 记下来，不吞掉：失败就说明方案 A 走不通
             stats["set_failed"] += 1
             stats["last_error"] = repr(e)
         return oid
@@ -71,9 +72,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data-root", required=True)
     p.add_argument("--source-root", required=True)
-    p.add_argument("--split", default="train")         # 诊断用训练集，不碰 val
+    p.add_argument("--split", default="train")  # 诊断用训练集，不碰 val
     p.add_argument("--gpu", type=int, default=0)
-    p.add_argument("--seg-weights", default=None)       # 给了就顺便看 YOLO 在同一帧上的结果
+    p.add_argument("--seg-weights", default=None)  # 给了就顺便看 YOLO 在同一帧上的结果
     p.add_argument("--out", required=True)
     args = p.parse_args()
     out = Path(args.out)
@@ -83,15 +84,22 @@ def main():
     ep, scan = pick_episode(args.data_root, args.split, motion)
     print(f"episode {ep['episode_id']}  scan {scan}")
 
-    env = make_env(args.data_root, args.split, [str(ep["episode_id"])], args.gpu, args.source_root,
-                   extra_sensors=("SEMANTIC_SENSOR",))
+    env = make_env(
+        args.data_root,
+        args.split,
+        [str(ep["episode_id"])],
+        args.gpu,
+        args.source_root,
+        extra_sensors=("SEMANTIC_SENSOR",),
+    )
     seg = None
     if args.seg_weights:
         from havln_agent.perception.human_seg import YoloSegSegmenter
+
         seg = YoloSegSegmenter(args.seg_weights)
     try:
         sim = env.habitat_env.sim
-        stats = hook_human_ids(sim)                     # 必须在 reset 之前：reset 时第一次加行人
+        stats = hook_human_ids(sim)  # 必须在 reset 之前：reset 时第一次加行人
         runner = EpisodeRunner(env)
         obs = runner.reset()
         print("观测键：", {k: getattr(v, "shape", None) for k, v in obs.items()})
@@ -101,12 +109,18 @@ def main():
             raise SystemExit(f"semantic {obs['semantic'].shape} 与 rgb {obs['rgb'].shape} 尺寸不一致")
 
         from PIL import Image
+
         rows, saved = [], 0
-        for k in range(25):                             # 原地转一圈多一点
+        for k in range(25):  # 原地转一圈多一点
             sem = obs["semantic"].astype(np.int64)
             human = sem >= HUMAN_BASE
             ids = sorted(set(np.unique(sem[human]).tolist()))
-            row = {"step": k, "t": round(runner.now(), 2), "human_px": int(human.sum()), "human_ids": len(ids)}
+            row = {
+                "step": k,
+                "t": round(runner.now(), 2),
+                "human_px": int(human.sum()),
+                "human_ids": len(ids),
+            }
             if seg is not None:
                 inst, _ = seg.segment(obs["rgb"], human.shape)
                 pred = inst > 0
@@ -114,7 +128,7 @@ def main():
                 row["pixel_recall"] = round(float((pred & human).sum() / max(human.sum(), 1)), 3)
             rows.append(row)
             print(row)
-            if human.sum() > 0 and saved < 4:           # 存几张叠加图：红=真值，绿=YOLO
+            if human.sum() > 0 and saved < 4:  # 存几张叠加图：红=真值，绿=YOLO
                 img = overlay(obs["rgb"], human, (255, 0, 0))
                 if seg is not None:
                     img = overlay(img, pred, (0, 255, 0))
@@ -130,9 +144,19 @@ def main():
             "frames_with_humans": sum(r["human_px"] > 0 for r in rows),
         }
         print("结论：", verdict)
-        (out / "smoke.json").write_text(json.dumps({"episode": str(ep["episode_id"]), "scan": scan,
-                                                    "stats": stats, "rows": rows, "verdict": verdict},
-                                                   indent=2, ensure_ascii=False))
+        (out / "smoke.json").write_text(
+            json.dumps(
+                {
+                    "episode": str(ep["episode_id"]),
+                    "scan": scan,
+                    "stats": stats,
+                    "rows": rows,
+                    "verdict": verdict,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     finally:
         env.close()
 

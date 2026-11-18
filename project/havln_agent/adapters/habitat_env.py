@@ -9,13 +9,12 @@
 PrivilegedView 汇集了所有特权信息（参考路径、终点、行人真实位置），
 只给评测脚本和训练数据生成脚本用，智能体代码里不出现。
 """
+
 import math
 import os
 import time
 from pathlib import Path
-from typing import List, Optional
-
-import numpy as np
+from typing import List
 
 from ..geometry import habitat_to_map
 
@@ -29,36 +28,48 @@ def import_runtime(source_root: Path):
     """与官方 policy_runtime() 相同的导入方式：先用镜像里打过补丁的 Habitat，再把公开源码挂到 vlnce_baselines 下。"""
     import habitat
     import habitat_sim
+
     if habitat.__version__ != "0.1.7" or habitat_sim.__version__ != "0.1.7":
         raise RuntimeError("必须在官方 HA-VLN 2.0 镜像（Habitat 0.1.7）里运行")
     import habitat_extensions  # noqa: F401  注册传感器和度量
     import vlnce_baselines
     import vlnce_baselines.common
+
     baseline = source_root / "agent/VLN-CE/vlnce_baselines"
     if str(baseline) not in vlnce_baselines.__path__:
         vlnce_baselines.__path__.append(str(baseline))
         vlnce_baselines.common.__path__.append(str(baseline / "common"))
-    try:                                   # COLLISIONS_DETAIL 等度量定义在 HASimulator 里
+    try:  # COLLISIONS_DETAIL 等度量定义在 HASimulator 里
         import sys
+
         sys.path.insert(0, str(source_root))
         import HASimulator.measures  # noqa: F401
     except Exception:
         pass
 
 
-def make_env(data_root: str, split: str, episode_ids: List[str], gpu: int, source_root: str,
-             with_metrics: bool = False, extra_sensors=()):
+def make_env(
+    data_root: str,
+    split: str,
+    episode_ids: List[str],
+    gpu: int,
+    source_root: str,
+    with_metrics: bool = False,
+    extra_sensors=(),
+):
     """extra_sensors：额外打开的传感器（如 SEMANTIC_SENSOR），只给离线诊断用，正式 rollout 不传。
     额外传感器的分辨率、视场角、安装位置一律复制 RGB_SENSOR，保证像素对齐。"""
     from habitat import Config  # noqa: F401
+
     import_runtime(Path(source_root))
-    from vlnce_baselines.config.default import get_config
     from vlnce_baselines.common.environments import HAVLNCEDaggerEnv
+    from vlnce_baselines.config.default import get_config
 
     if not Path(CHALLENGE_CONFIG).is_file():
         raise FileNotFoundError(
             f"找不到比赛配置 {CHALLENGE_CONFIG}。原生环境请把官方镜像的 /app/config 拷出来，"
-            f"并 export HAVLN_CHALLENGE_CONFIG=<拷出目录>/challenge_submission.yaml（见 docs/TRAINING.md 第 3 步）")
+            f"并 export HAVLN_CHALLENGE_CONFIG=<拷出目录>/challenge_submission.yaml（见 docs/TRAINING.md 第 3 步）"
+        )
     config = get_config(CHALLENGE_CONFIG)
     config.defrost()
     config.EVAL.SPLIT = split
@@ -103,7 +114,9 @@ def sensor_report(env) -> dict:
         s = getattr(sim_cfg, name)
         out[name] = {k: getattr(s, k) for k in ("WIDTH", "HEIGHT", "HFOV", "POSITION") if hasattr(s, k)}
     d = sim_cfg.DEPTH_SENSOR
-    out["DEPTH_SENSOR"].update({k: getattr(d, k) for k in ("MIN_DEPTH", "MAX_DEPTH", "NORMALIZE_DEPTH") if hasattr(d, k)})
+    out["DEPTH_SENSOR"].update(
+        {k: getattr(d, k) for k in ("MIN_DEPTH", "MAX_DEPTH", "NORMALIZE_DEPTH") if hasattr(d, k)}
+    )
     out["TILT_ANGLE"] = getattr(sim_cfg, "TILT_ANGLE", None)
     out["ALLOW_SLIDING"] = sim_cfg.HABITAT_SIM_V0.ALLOW_SLIDING
     out["ACTIONS"] = list(env.habitat_env._config.TASK.POSSIBLE_ACTIONS)
@@ -132,7 +145,7 @@ class EpisodeRunner:
 
     def reset(self):
         obs = self.env.reset()
-        self.t0 = time.monotonic()      # 行人动画从 reset 起按墙钟走，t 与之对齐
+        self.t0 = time.monotonic()  # 行人动画从 reset 起按墙钟走，t 与之对齐
         return obs
 
     def step(self, action):

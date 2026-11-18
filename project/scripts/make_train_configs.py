@@ -12,6 +12,7 @@
   agent-base.json / agent-nav.json  智能体连接上面两个服务的配置（模型名、缓存目录各自独立）
 目录已存在就拒绝覆盖：每一轮的配置原样留档，结果才能复现。
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -28,7 +29,9 @@ def main():
     p.add_argument("--dataset", required=True, help="gen_decision_data.py --merge 的输出目录")
     p.add_argument("--base-model", default=None, help="默认 <root>/weights/Qwen2.5-VL-7B-Instruct")
     p.add_argument("--port", type=int, default=18080)
-    p.add_argument("--num-gpus", type=int, default=2, help="正式训练用几张卡；梯度累积按 16 / 卡数 设置，保持等效批量 16")
+    p.add_argument(
+        "--num-gpus", type=int, default=2, help="正式训练用几张卡；梯度累积按 16 / 卡数 设置，保持等效批量 16"
+    )
     args = p.parse_args()
 
     root = Path(args.root).resolve()
@@ -43,15 +46,35 @@ def main():
     if not (base / "config.json").is_file():
         raise SystemExit(f"缺基座模型 {base}/config.json")
     if not (dataset / "dataset_info.json").is_file():
-        print(f"提示：{dataset} 还没有划分好的数据。服务和智能体配置可以先用，训练前先跑 gen_decision_data.py --merge")
+        print(
+            f"提示：{dataset} 还没有划分好的数据。服务和智能体配置可以先用，训练前先跑 gen_decision_data.py --merge"
+        )
 
     train = yaml.safe_load((ROOT / "configs/train_decision_lora.yaml").read_text())
-    train.update(model_name_or_path=str(base), dataset_dir=str(dataset), output_dir=str(adapter),
-                 overwrite_output_dir=False, report_to="none", seed=0, data_seed=0,
-                 quantization_method="bitsandbytes", double_quantization=True, quantization_type="nf4",
-                 gradient_accumulation_steps=max(1, 16 // args.num_gpus), ddp_find_unused_parameters=False)
-    smoke = dict(train, output_dir=str(adapter) + "-smoke", max_steps=20, logging_steps=1,
-                 save_steps=20, eval_steps=20, gradient_accumulation_steps=1, max_samples=64)
+    train.update(
+        model_name_or_path=str(base),
+        dataset_dir=str(dataset),
+        output_dir=str(adapter),
+        overwrite_output_dir=False,
+        report_to="none",
+        seed=0,
+        data_seed=0,
+        quantization_method="bitsandbytes",
+        double_quantization=True,
+        quantization_type="nf4",
+        gradient_accumulation_steps=max(1, 16 // args.num_gpus),
+        ddp_find_unused_parameters=False,
+    )
+    smoke = dict(
+        train,
+        output_dir=str(adapter) + "-smoke",
+        max_steps=20,
+        logging_steps=1,
+        save_steps=20,
+        eval_steps=20,
+        gradient_accumulation_steps=1,
+        max_samples=64,
+    )
     export = yaml.safe_load((ROOT / "configs/export_merged.yaml").read_text())
     export.update(model_name_or_path=str(base), adapter_name_or_path=str(adapter), export_dir=str(merged))
 
@@ -59,13 +82,27 @@ def main():
     for name, value in (("train", train), ("smoke", smoke), ("export", export)):
         (dest / f"{name}.yaml").write_text(yaml.safe_dump(value, sort_keys=False, allow_unicode=True))
     for name, weight in (("base", base), ("nav", merged)):
-        api = dict(model_name_or_path=str(weight), template="qwen2_vl", infer_backend="huggingface",
-                   trust_remote_code=True, quantization_bit=4, quantization_method="bitsandbytes",
-                   image_max_pixels=112896, do_sample=False, max_new_tokens=1024)
+        api = dict(
+            model_name_or_path=str(weight),
+            template="qwen2_vl",
+            infer_backend="huggingface",
+            trust_remote_code=True,
+            quantization_bit=4,
+            quantization_method="bitsandbytes",
+            image_max_pixels=112896,
+            do_sample=False,
+            max_new_tokens=1024,
+        )
         (dest / f"api-{name}.yaml").write_text(yaml.safe_dump(api, sort_keys=False))
-        agent = {"slow": {"base_url": f"http://127.0.0.1:{args.port}/v1", "model": f"zbc-{run}-{name}",
-                          "cache_dir": str(root / "cache" / f"llm-{run}-{name}"),
-                          "use_env_proxy": False, "timeout_s": 180.0}}
+        agent = {
+            "slow": {
+                "base_url": f"http://127.0.0.1:{args.port}/v1",
+                "model": f"zbc-{run}-{name}",
+                "cache_dir": str(root / "cache" / f"llm-{run}-{name}"),
+                "use_env_proxy": False,
+                "timeout_s": 180.0,
+            }
+        }
         (dest / f"agent-{name}.json").write_text(json.dumps(agent, indent=2))
     print(f"配置写到 {dest}")
     print(f"  服务模型名：zbc-{run}-base / zbc-{run}-nav（起 API 时 API_MODEL_NAME 要与之一致）")

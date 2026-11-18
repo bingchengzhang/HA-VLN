@@ -10,42 +10,43 @@
      多远、离人最近多少、是否穿过人的社交区、是否通向未知、是否走过
   4. 墙上能走但被人挡住的方向也保留（标 blocked_by_human），是否等人让开由大模型结合指令决定
 """
+
 import math
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 import numpy as np
 
 from ..config import AgentCfg
 from ..geometry import wrap
-from .grid_search import PlanGrid, PathField, extract_path, nearest_reachable, path_length, escape_mask
+from .grid_search import PathField, PlanGrid, escape_mask, extract_path, nearest_reachable, path_length
 
 
 @dataclass
 class Candidate:
     cid: int
-    bearing_deg: float               # 相对当前朝向，向左为正
-    abs_yaw: float                   # 地图绝对朝向
-    endpoint: tuple                  # 终点 (x, y)
-    straight_m: float                # 只看墙时能直行多远
-    path: Optional[list] = None      # 规划路线；None 表示目前到不了
+    bearing_deg: float  # 相对当前朝向，向左为正
+    abs_yaw: float  # 地图绝对朝向
+    endpoint: tuple  # 终点 (x, y)
+    straight_m: float  # 只看墙时能直行多远
+    path: Optional[list] = None  # 规划路线；None 表示目前到不了
     distance_m: float = 0.0
     min_clearance_to_human_m: float = 99.0
     crosses_human_zone: bool = False
     blocked_by_human: bool = False
     leads_to_unknown: bool = False
     visited: bool = False
-    elevation_change_m: Optional[float] = None   # 路线上最远的已知地面比脚下高多少；None 表示一路都没看到地面
-    tried_before: Optional[str] = None           # 以前这个方向失败过的原因："blocked_by_human" / "dead_end"
+    elevation_change_m: Optional[float] = None  # 路线上最远的已知地面比脚下高多少；None 表示一路都没看到地面
+    tried_before: Optional[str] = None  # 以前这个方向失败过的原因："blocked_by_human" / "dead_end"
     in_view: bool = False
-    view_ref: Optional[int] = None   # 视野记忆里对应的图片编号
+    view_ref: Optional[int] = None  # 视野记忆里对应的图片编号
 
     def summary(self):
         """送给慢回路的字段（不含路线坐标）。"""
         d = asdict(self)
         for k in ("path", "abs_yaw", "endpoint", "view_ref"):
             d.pop(k)
-        for k, v in d.items():                      # numpy 的 bool/float 不能直接 json.dumps
+        for k, v in d.items():  # numpy 的 bool/float 不能直接 json.dumps
             if isinstance(v, np.generic):
                 d[k] = v.item()
         d["bearing_deg"] = int(round(self.bearing_deg))
@@ -84,10 +85,18 @@ def _ray_free(grid: PlanGrid, x, y, yaw, max_d, blocked: np.ndarray):
     return max_d
 
 
-def generate_candidates(grid: PlanGrid, field: PathField, pose, visited_xy: np.ndarray,
-                        cfg: AgentCfg, exclude_yaws=(), ground_fn=None, feet_h: float = 0.0) -> List[Candidate]:
+def generate_candidates(
+    grid: PlanGrid,
+    field: PathField,
+    pose,
+    visited_xy: np.ndarray,
+    cfg: AgentCfg,
+    exclude_yaws=(),
+    ground_fn=None,
+    feet_h: float = 0.0,
+) -> List[Candidate]:
     """ground_fn(x, y) -> 该点地面的世界高度（未观测为 nan），用来标出上楼/下楼的候选。"""
-    dc, cc = cfg.decision, cfg.cost
+    dc = cfg.decision
     x, y, yaw = pose
     n = dc.n_candidate_dirs
     step_deg = 360.0 / n
@@ -124,7 +133,7 @@ def generate_candidates(grid: PlanGrid, field: PathField, pose, visited_xy: np.n
     picks = []
     for g in groups:
         for c0 in range(0, len(g), max_per):
-            chunk = g[c0:c0 + max_per]
+            chunk = g[c0 : c0 + max_per]
             best = max(chunk, key=lambda k: (reach_wall[k], -abs(rel[k])))
             picks.append(best)
 
@@ -136,11 +145,17 @@ def generate_candidates(grid: PlanGrid, field: PathField, pose, visited_xy: np.n
             continue
         d = min(reach_wall[k], dc.candidate_max_dist)
         ex, ey = x + d * math.cos(a), y + d * math.sin(a)
-        cand = Candidate(cid=0, bearing_deg=math.degrees(rel[k]), abs_yaw=wrap(a), endpoint=(ex, ey),
-                         straight_m=float(reach_wall[k]), in_view=abs(rel[k]) <= half_fov)
+        cand = Candidate(
+            cid=0,
+            bearing_deg=math.degrees(rel[k]),
+            abs_yaw=wrap(a),
+            endpoint=(ex, ey),
+            straight_m=float(reach_wall[k]),
+            in_view=abs(rel[k]) <= half_fov,
+        )
         goal = nearest_reachable(field, ex, ey)
         if goal is None:
-            cand.blocked_by_human = True          # 墙上可行但规划不到：被人（或人的余量）挡住
+            cand.blocked_by_human = True  # 墙上可行但规划不到：被人（或人的余量）挡住
         else:
             cand.path = extract_path(field, goal)
             _annotate(cand, grid, cfg)
@@ -151,8 +166,11 @@ def generate_candidates(grid: PlanGrid, field: PathField, pose, visited_xy: np.n
                     if not math.isnan(gh):
                         cand.elevation_change_m = gh - feet_h
                         break
-        if short_candidates and cand.path is not None and \
-                math.hypot(cand.path[-1][0] - x, cand.path[-1][1] - y) < 0.35:
+        if (
+            short_candidates
+            and cand.path is not None
+            and math.hypot(cand.path[-1][0] - x, cand.path[-1][1] - y) < 0.35
+        ):
             cand.path = None
             cand.blocked_by_human = True  # 近端吸附并非路线恢复，保留等待语义而不是伪造已到达的短段。
         if len(visited_xy):
@@ -177,7 +195,10 @@ def _curved_candidates(grid, field, pose, visited_xy, cfg, ground_fn, feet_h, ex
     result = []
     for k in range(dc.n_candidate_dirs):
         direction = yaw + 2 * math.pi * k / dc.n_candidate_dirs
-        gx, gy = x + dc.candidate_max_dist * math.cos(direction), y + dc.candidate_max_dist * math.sin(direction)
+        gx, gy = (
+            x + dc.candidate_max_dist * math.cos(direction),
+            y + dc.candidate_max_dist * math.sin(direction),
+        )
         goal = nearest_reachable(field, gx, gy)
         if goal is None:
             continue
@@ -190,17 +211,24 @@ def _curved_candidates(grid, field, pose, visited_xy, cfg, ground_fn, feet_h, ex
         if length < direct + 2 * grid.res:
             continue  # 直线路径已由原有候选覆盖，只补充需要拐弯的路线。
         absolute = math.atan2(ey - y, ex - x)
-        if any(abs(wrap(absolute - excluded)) < 2 * math.pi / dc.n_candidate_dirs
-               for excluded in exclude_yaws):
+        if any(
+            abs(wrap(absolute - excluded)) < 2 * math.pi / dc.n_candidate_dirs for excluded in exclude_yaws
+        ):
             continue
         bearing = wrap(absolute - yaw)
         straight = _ray_free(grid, x, y, absolute, dc.candidate_max_dist, grid.wall_lethal)
-        cand = Candidate(cid=0, bearing_deg=math.degrees(bearing), abs_yaw=absolute,
-                         endpoint=(ex, ey), straight_m=float(straight), path=path,
-                         in_view=abs(bearing) <= math.radians(cfg.sensor.hfov_deg) / 2)
+        cand = Candidate(
+            cid=0,
+            bearing_deg=math.degrees(bearing),
+            abs_yaw=absolute,
+            endpoint=(ex, ey),
+            straight_m=float(straight),
+            path=path,
+            in_view=abs(bearing) <= math.radians(cfg.sensor.hfov_deg) / 2,
+        )
         _annotate(cand, grid, cfg)
         if len(visited_xy):
-            cand.visited = bool(np.min(np.hypot(visited_xy[:, 0] - ex, visited_xy[:, 1] - ey)) < .75)
+            cand.visited = bool(np.min(np.hypot(visited_xy[:, 0] - ex, visited_xy[:, 1] - ey)) < 0.75)
         if ground_fn is not None:
             for px, py in reversed(path):
                 height = ground_fn(px, py)
@@ -218,8 +246,10 @@ def _merge_same_way(cands: List[Candidate], tol_m: float = 0.6) -> List[Candidat
     kept = []
     for c in with_path:
         ex, ey = c.path[-1]
-        same = any(np.min(np.hypot(np.asarray(k.path)[:, 0] - ex, np.asarray(k.path)[:, 1] - ey)) < tol_m
-                   for k in kept)
+        same = any(
+            np.min(np.hypot(np.asarray(k.path)[:, 0] - ex, np.asarray(k.path)[:, 1] - ey)) < tol_m
+            for k in kept
+        )
         if not same:
             kept.append(c)
     return kept + [c for c in cands if c.path is None]

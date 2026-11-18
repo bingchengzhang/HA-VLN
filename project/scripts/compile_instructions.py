@@ -7,6 +7,7 @@
 --fit-path-stats：在训练集上拟合"参考路径长度 ≈ a + b × 指令词数"，供智能体判断是否走过头。
 只用训练集拟合，val/test 不参与（主办方规定 val/test 不能用于训练）。
 """
+
 import argparse
 import gzip
 import json
@@ -56,9 +57,17 @@ def main():
     p.add_argument("--cfg", default=None)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--fit-path-stats", action="store_true")
-    p.add_argument("--episode-list", default=None,
-                   help="只拆这些 episode（每行一个 id，例如 gen_decision_data.py --list-episodes 的输出）")
-    p.add_argument("--limit", type=int, default=None, help="每个 split 只拆按 id 排序后的前 N 条（与 run_rollout --limit 对应）")
+    p.add_argument(
+        "--episode-list",
+        default=None,
+        help="只拆这些 episode（每行一个 id，例如 gen_decision_data.py --list-episodes 的输出）",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="每个 split 只拆按 id 排序后的前 N 条（与 run_rollout --limit 对应）",
+    )
     args = p.parse_args()
 
     if args.fit_path_stats:
@@ -70,8 +79,8 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
     if out.exists():
-        rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
-        last = {r["episode_id"]: r for r in rows}                       # 同一条拆过多次，以最后一次为准
+        rows = [json.loads(line) for line in out.read_text().splitlines() if line.strip()]
+        last = {r["episode_id"]: r for r in rows}  # 同一条拆过多次，以最后一次为准
         done = {k for k, r in last.items() if not r["plan"].get("fallback")}
     keep = set(Path(args.episode_list).read_text().split()) if args.episode_list else None
     todo = []
@@ -80,7 +89,7 @@ def main():
         if keep is not None:
             eps = [e for e in eps if str(e["episode_id"]) in keep]
         if args.limit:
-            eps = eps[:args.limit]
+            eps = eps[: args.limit]
         todo += [e for e in eps if str(e["episode_id"]) not in done]
     print(f"已完成 {len(done)}，待拆解 {len(todo)}")
     lock = threading.Lock()

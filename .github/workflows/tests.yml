@@ -12,12 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python -m pip install numpy scipy pillow pytest
+        run: python -m pip install numpy scipy pillow pytest ruff
+      - name: Lint
+        working-directory: project
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
       - name: Run tests without Habitat
         working-directory: project
         run: python -m pytest tests -q

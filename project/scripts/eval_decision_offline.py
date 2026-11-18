@@ -12,6 +12,7 @@
   observe_match  专家要"转身看"时模型也要求看的比例
   box_center_err 停止样本里框中心与专家框中心的像素误差中位数（image_side 尺度）
 """
+
 import argparse
 import json
 import sys
@@ -39,7 +40,7 @@ def main():
     client = ChatClient(cfg.slow)
     slow = SlowLoop(cfg, client)
     data = Path(args.data)
-    rows = json.loads((data / "decision_val_raw.json").read_text())[:args.limit]
+    rows = json.loads((data / "decision_val_raw.json").read_text())[: args.limit]
 
     n_ok = 0
     ch_n = ch_ok = st_n = st_ok = nst_n = nst_bad = ob_n = ob_ok = 0
@@ -57,8 +58,11 @@ def main():
             st_n += 1
             st_ok += bool(d and d.stop)
             if d and d.stop and d.goal_box and lab["goal_box"]:
-                c = lambda b: np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2])
-                box_err.append(float(np.linalg.norm(c(d.goal_box) - c(lab["goal_box"]))))
+
+                def center(box):
+                    return np.array([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
+
+                box_err.append(float(np.linalg.norm(center(d.goal_box) - center(lab["goal_box"]))))
         else:
             nst_n += 1
             nst_bad += bool(d and d.stop)
@@ -68,12 +72,20 @@ def main():
         elif lab["choose"] is not None:
             ch_n += 1
             ch_ok += bool(d and d.choose == lab["choose"])
-    rate = lambda a, b: round(a / b, 3) if b else None
-    res = {"n": len(rows), "json_ok": rate(n_ok, len(rows)), "choose_acc": rate(ch_ok, ch_n),
-           "stop_recall": rate(st_ok, st_n), "stop_false": rate(nst_bad, nst_n),
-           "observe_match": rate(ob_ok, ob_n),
-           "box_center_err_px": round(float(np.median(box_err)), 1) if box_err else None,
-           "model": cfg.slow.model}
+
+    def rate(num, den):
+        return round(num / den, 3) if den else None
+
+    res = {
+        "n": len(rows),
+        "json_ok": rate(n_ok, len(rows)),
+        "choose_acc": rate(ch_ok, ch_n),
+        "stop_recall": rate(st_ok, st_n),
+        "stop_false": rate(nst_bad, nst_n),
+        "observe_match": rate(ob_ok, ob_n),
+        "box_center_err_px": round(float(np.median(box_err)), 1) if box_err else None,
+        "model": cfg.slow.model,
+    }
     print(json.dumps(res, indent=2, ensure_ascii=False))
     (data / f"offline_eval_{cfg.slow.model.replace('/', '_')}.json").write_text(json.dumps(res, indent=2))
 

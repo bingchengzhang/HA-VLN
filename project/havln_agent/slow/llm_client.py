@@ -5,6 +5,7 @@
 本质：只依赖标准库发请求；所有调用按"模型 + 完整消息"做哈希缓存到磁盘。
       temperature 0 + 缓存，保证同一个 episode 重跑结果一致，获奖核验时也能复现。
 """
+
 import base64
 import hashlib
 import io
@@ -28,6 +29,7 @@ def prepare_image(rgb: np.ndarray, side: int):
     """推理和造训练数据共用：缩放到 side×side 的 PIL 图。训练与推理的分辨率、
     以及 goal_box 的像素坐标系都以它为准（Qwen2.5-VL 输出的是输入图上的绝对像素坐标）。"""
     from PIL import Image
+
     img = Image.fromarray(np.asarray(rgb)[..., :3].astype(np.uint8))
     if img.size != (side, side):
         img = img.resize((side, side), Image.BILINEAR)
@@ -50,9 +52,15 @@ class ChatClient:
         self.n_cache_hits = 0
         self.last_cached = False
 
-    def chat(self, system: str, text: str, images: Optional[List[np.ndarray]] = None,
-             image_captions: Optional[List[str]] = None, max_tokens: Optional[int] = None,
-             use_cache: bool = True) -> str:
+    def chat(
+        self,
+        system: str,
+        text: str,
+        images: Optional[List[np.ndarray]] = None,
+        image_captions: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
+        use_cache: bool = True,
+    ) -> str:
         """发一轮对话，返回模型输出的文本。images 只在 supports_images=True 时发送。
         max_tokens：覆盖默认输出上限（会进入缓存键，改了上限就不会读到旧的截断回复）。
         use_cache=False：不读缓存、照常写缓存。上一次的回复解析失败、需要真正重试时用。"""
@@ -61,11 +69,19 @@ class ChatClient:
             for k, img in enumerate(images):
                 cap = image_captions[k] if image_captions else f"Image {k}"
                 content.append({"type": "text", "text": cap})
-                content.append({"type": "image_url", "image_url": {"url": image_to_data_url(img, self.cfg.image_side)}})
-        messages = [{"role": "system", "content": system},
-                    {"role": "user", "content": content if len(content) > 1 else text}]
-        body = {"model": self.cfg.model, "messages": messages, "temperature": self.cfg.temperature,
-                "max_tokens": max_tokens or self.cfg.max_tokens}
+                content.append(
+                    {"type": "image_url", "image_url": {"url": image_to_data_url(img, self.cfg.image_side)}}
+                )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": content if len(content) > 1 else text},
+        ]
+        body = {
+            "model": self.cfg.model,
+            "messages": messages,
+            "temperature": self.cfg.temperature,
+            "max_tokens": max_tokens or self.cfg.max_tokens,
+        }
 
         key = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         path = os.path.join(self.cfg.cache_dir, key[:2], key + ".json")
@@ -92,15 +108,19 @@ class ChatClient:
         opener = urllib.request.build_opener(*handlers)
         last = None
         for attempt in range(3):
-            req = urllib.request.Request(url, data=data, method="POST", headers={
-                "Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"})
+            req = urllib.request.Request(
+                url,
+                data=data,
+                method="POST",
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
+            )
             try:
                 with opener.open(req, timeout=self.cfg.timeout_s) as r:
                     payload = json.loads(r.read().decode())
                 return payload["choices"][0]["message"]["content"] or ""
             except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
                 last = e
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
         raise LLMError(f"调用 {url} 失败：{last}")
 
 
@@ -117,7 +137,7 @@ def extract_json(text: str) -> dict:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start:k + 1])
+                        return json.loads(text[start : k + 1])
                     except json.JSONDecodeError:
                         break
         start = text.find("{", start + 1)

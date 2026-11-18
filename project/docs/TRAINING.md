@@ -1,34 +1,61 @@
-# 训练操作手册（师兄服务器，原生环境，不用 Docker）
+# 训练操作手册
 
-本手册对应 `havln_nav` 当前版本。服务器是共享机器，规矩是：
-- 所有写入都限定在 `/mnt/data/zbc`；
-- 不用 sudo，不改 `.bashrc`、`.condarc`、`.gitconfig`，不往系统 Python 或 conda base 里装包；
-- 不碰别人的进程和容器，只用师兄明确分给你的那张卡；
-- 不用 Docker，你的账号也不在 docker 组里。
+共享服务器上的原生环境，不用 Docker。约束：
 
-服务器连不上 Hugging Face 和 GitHub，所有外网下载都在 WSL 里完成，再用 scp 传上去。
+- 写入只放在 `/mnt/data/zbc`
+- 不用 sudo，不改 `.bashrc`、`.condarc`、`.gitconfig`，不往系统 Python 或 conda base 里装包
+- 不碰别人的进程和容器，只用分配到的 GPU
+- 不用 Docker，当前账号不在 docker 组里
 
-**状态标注**：标 ✅ 的是你已经实际确认过的；标 ⚠️ 的是没在这台服务器上跑过的计划步骤，显存、耗时、兼容性都要现场确认。每一关没过就停下来，不要往下做。
+服务器连不上 Hugging Face 和 GitHub。外网下载在 WSL 里完成，再用 scp 传上去。
+
+## 已经记下的结果
+
+手册针对的机器是 `ffy@10.130.130.66`（端口 6066）。写入只在 `/mnt/data/zbc`，也就是 `$ZBC`。仓库没有逐步打勾，下面只写文档里对得上的事。
+
+这台服务器上已经有的产物：
+
+- r0 LoRA 在 `$ZBC/workspace/lora/r0`，约 154 MiB。已发布到 [Hugging Face](https://huggingface.co/bingchengzhang/HA-VLN-nav-r0-lora)，文件大小和 LFS SHA256 校验通过。按本手册，这台服务器连不上 Hugging Face，所以上传不在这台机器上做；用的是哪一台能读到权重目录的机器，文档没写。
+- r0 合并模型在 `$ZBC/weights/Qwen2.5-VL-7B-nav-r0`，约 31 GiB，没有再次托管。用官方基座和这份 LoRA 在本机合并，见 [模型说明](MODELS.md)。
+- r0 原始闭环评估已完成：20 条路线，SR=0。闭环说明把它记在现有运行环境上，见 [闭环说明](CLOSED_LOOP.md)。控制和地形修复之后要重跑完整评估；这次重跑没有记录。
+
+这些产物说明训练环境、训练数据，以及 r0 的 QLoRA 和合并，在 `$ZBC` 下已经有过。第 4、5、10、11 步是对应的操作，不是还没执行的计划。仓库不能证明当时敲的就是下面的原句。
+
+没有记录的：
+
+- 第 13 步 DAgger。
+- 离线指标。`json_ok`、`choose_acc` 这些数没有写进仓库。第 12 步里的闭环就是上面那 20 条；离线评测有没有跑，文档没写。
+- 第 3 步的 `extract_image_files.py`。手册写明它只用合成数据测过解层，没有连真实镜像仓库的记录。闭环能跑只说明当时有一套 Habitat 运行时，不能据此说这个脚本已经对官方镜像跑过。
+- 第 0–2 步、第 6–9 步有没有按本手册跑过，文档没写。
+
+还没做过的步骤按顺序做。某一步失败就停，显存、耗时和兼容性当场看。
 
 ## 总流程
 
 ```
-⓪ 核实服务器现状 → ① 同步代码 → ② 终端变量
-→ ③ 从官方镜像取出运行时文件 + check_env（当前卡在这一关）
-→ ④ 训练环境 → ⑤ 数据与权重
-→ ⑥ 不调模型的冒烟 rollout → ⑦ 原版模型闭环 + 专家诊断（各 20 条）
-→ ⑧ 采集专家数据（先 20 条，再 2000 条）→ ⑨ 原版模型离线考试
-→ ⑩ 20 步试训 → 正式训练 → ⑪ 合并 → ⑫ 微调后考试和闭环
-→ ⑬ DAgger 第 1 轮（回到 ⑩）→ 提交
+0. 核实服务器现状
+1. 同步代码
+2. 终端变量
+3. 从官方镜像取出运行时文件，并跑 check_env
+4. 训练环境
+5. 数据与权重
+6. 不调模型的冒烟 rollout
+7. 原版模型闭环和专家诊断（各 20 条）
+8. 采集专家数据（先 20 条，再 2000 条）
+9. 原版模型离线评测
+10. 20 步试训，然后正式训练
+11. 合并
+12. 微调后评测和闭环
+13. DAgger 第 1 轮（回到第 10 步），然后提交
 ```
 
-训练的是什么：只训练慢回路，也就是 Qwen2.5-VL-7B 在决策点上要做的那道选择题——选哪个候选、停不停、要不要转身看。建图、规划、执行都是程序，不参与训练。
-标签由特权专家（`havln_agent/oracle.py`）根据训练集的参考路径自动生成，没有人工标注。
-训练方法是监督微调（SFT）+ QLoRA：基座权重加载成 4-bit 后冻结，只训练插在语言模型线性层上的一组小矩阵（LoRA）；视觉编码器也冻结。
+只训练慢回路：Qwen2.5-VL-7B 在决策点上选哪个候选、停不停、要不要转身看。建图、规划和执行不训练。
+标签由特权专家（`havln_agent/oracle.py`）根据训练集参考路径生成，没有人工标注。
+方法是监督微调加 QLoRA：基座以 4-bit 加载后冻结，只训练语言模型线性层上的 LoRA；视觉编码器也冻结。
 
 ---
 
-## ⓪ 核实服务器现状（服务器，只读不写）
+## 0. 核实服务器现状（服务器，只读不写）
 
 ```bash
 ssh -p 6066 ffy@10.130.130.66
@@ -43,25 +70,24 @@ find /mnt/data/zbc -maxdepth 3 -name havln_agent -type d                  # 已�
 
 这些命令全部只读，有几件事要记下来：
 - **驱动版本**：训练环境用的是 cu118 版 torch，驱动需要 ≥ 520。4090 的驱动一般都满足，但还是要看一眼。
-- **哪张卡空、哪张卡是你的**：卡空着不代表你能用，以师兄明确分给你的编号为准。
+- **哪张卡空、哪张卡能用**：空闲不代表可以使用，以分配到的编号为准。
 - **项目代码有几份**：只该有一份，有多份就先确认哪份是你在用的。
-- **服务器能不能用 pip**：决定第 ④ 步是在服务器上直接装，还是在 WSL 里打包好再传上来。
-- **剩余磁盘**：整个流程大约需要 80 GB，见第 ⑤ 步末尾的预算。
+- **服务器能不能用 pip**：决定第 4 步是在服务器上直接装，还是在 WSL 里打包好再传上来。
+- **剩余磁盘**：整个流程大约需要 80 GB，见第 5 步末尾的预算。
 
-`find` 找不到 `havln_agent`，说明服务器上还没有项目代码，第 ① 步直接放到 `sources/havln_nav` 就行。
+`find` 找不到 `havln_agent` 时，这台机器上还没有这份代码，第 1 步放到 `sources/havln_nav`。上面已经记下 r0 权重时，不要把它当成空机器。
 
-## ① 同步代码
+## 1. 同步代码
 
-> ⚠️ 你 WSL 里同步的是**上一版** zip（117,098 字节，SHA256 `8544071a…`），不是这一版。这一版新增了 `docs/TRAINING.md`、`scripts/native_env.sh`、`scripts/native_paths.py`、`scripts/extract_image_files.py`、`scripts/make_train_configs.py`，还改了数据划分和 prompt 对齐。先把桌面上的 zip 换成新版再同步。
-> Codex 的 `prepare_decision_training.py` 不要用：它写出的验证文件格式和 `eval_decision_offline.py` 读的不一样，第 ⑨ 步会直接报错。它的功能现在由 `gen_decision_data.py --merge --reference` 和 `make_train_configs.py` 实现。`sync_server_code.py` 同步代码可以继续用。
+代码以 git 仓库为准。服务器上已有仓库时，在项目目录执行 `git pull`。
 
-不用同步工具的话，**WSL** 里执行：
+仍用 zip 时，在能访问服务器的机器上执行：
 
 ```bash
 scp -P 6066 /mnt/c/Users/lenovo/Desktop/havln_nav.zip ffy@10.130.130.66:/mnt/data/zbc/installers/
 ```
 
-然后在**服务器**上解压。代码已经存在时，先备份再覆盖（第 ⓪ 步找到的位置如果不是 `sources/havln_nav`，就把下面的路径换掉）：
+然后在**服务器**上解压。代码已经存在时，先备份再覆盖（第 0 步找到的位置如果不是 `sources/havln_nav`，就把下面的路径换掉）：
 
 ```bash
 cd /mnt/data/zbc/sources
@@ -70,9 +96,9 @@ python3 -c "import zipfile; zipfile.ZipFile('/mnt/data/zbc/installers/havln_nav.
 ls havln_nav/docs/TRAINING.md && echo "新版已就位"
 ```
 
-zip 的顶层目录就是 `havln_nav`。旧版移到 `backups/` 里，里面要是有你改过的东西，可以去那里找回来。之后改用 git 仓库时，这一步换成 `git pull`。
+zip 的顶层目录是 `havln_nav`。旧目录在 `backups/`。覆盖前确认备份里没有要留下的本地修改。
 
-## ② 每个新终端先执行
+## 2. 每个新终端先执行
 
 ```bash
 source /mnt/data/zbc/sources/havln_nav/scripts/native_env.sh
@@ -86,7 +112,7 @@ source /mnt/data/zbc/sources/havln_nav/scripts/native_env.sh
 
 这些设置只在当前终端有效。每开一个新终端都要重新 source，否则会用错 python，或者跑到别人的卡上。
 
-## ③ 从官方镜像取出运行时文件 + 环境验收（必须先过这一关）
+## 3. 从官方镜像取出运行时文件 + 环境验收（必须先过这一关）
 
 **为什么要做这一步**：官方的 `export_cma_submission.py` 是在镜像里跑的，它依赖镜像里的三样东西：
 - `/app/config/challenge_submission.yaml`：比赛环境配置，我们的适配器也是照着它建环境的；
@@ -98,7 +124,7 @@ source /mnt/data/zbc/sources/havln_nav/scripts/native_env.sh
 镜像是公开的：`ghcr.io/jostarxiong/havln-challenge-2026@sha256:e1a0544f…`（官方 README 里写的就是这个摘要）。
 **不需要 Docker**：`extract_image_files.py` 只用 Python 标准库，按镜像仓库协议匿名下载每一层，从中解出需要的目录。
 
-**WSL** 里执行（⚠️ 这个脚本只用合成数据测过解层逻辑，还没连真实仓库跑过；整个镜像可能有十几 GB，下载需要时间和磁盘）：
+**WSL** 里执行。这个脚本只用合成数据测过解层，还没对真实镜像仓库跑过。镜像可能有十几 GB：
 
 ```bash
 cd /home/bccc/workspace/havln
@@ -180,7 +206,7 @@ $HRUN scripts/check_env.py --split val_unseen --data-root "$DATA" --source-root 
 - **habitat_sim 报 C++ 层的错**：镜像里的 habitat-sim 可能也和你装的不一样。把 `index.txt` 里 `habitat_sim` 所在的目录取出来比对。这种情况现场排查，不要自己重编译。
 - **`$DATA/recompute_navmesh` 不存在**：先看报错是不是因为它。这个目录在官方流程里怎么生成的，我这边没法确认，需要看 HA-VLN 仓库的数据说明，或者问主办方。
 
-## ④ 训练环境（和 Habitat 分开） ⚠️
+## 4. 训练环境（和 Habitat 分开）
 
 Habitat 环境是 Python 3.8 + torch 2.0.1，装不了 LLaMA-Factory 0.9.3，所以训练另外建一个 Python 3.10 的环境。
 两个环境之间只通过文件交换数据，通过 HTTP 调用模型，互不影响。
@@ -223,7 +249,7 @@ scp -P 6066 havln-train-linux.tar.gz ffy@10.130.130.66:/mnt/data/zbc/installers/
 
 解压完再跑一遍上面的 `pip check` 和 GPU 检查。
 
-## ⑤ 数据与权重（在 WSL 下载，服务器连不上 HF） ⚠️
+## 5. 数据与权重（在 WSL 下载，服务器连不上 HF）
 
 **WSL**：
 
@@ -276,7 +302,7 @@ ls "$DATA/HAPS2_0" | head -3; ls "$DATA/Multi-Human-Annotations/human_motion.jso
 
 ```
 $DATA/HA-R2R/{train,val_seen,val_unseen}/   $DATA/HA-R2R-tools/          $DATA/Multi-Human-Annotations/
-$DATA/HAPS2_0/   $DATA/scene_datasets/mp3d/<scan>/<scan>.glb   $DATA/checkpoints/   $DATA/recompute_navmesh/（见第 ③ 步）
+$DATA/HAPS2_0/   $DATA/scene_datasets/mp3d/<scan>/<scan>.glb   $DATA/checkpoints/   $DATA/recompute_navmesh/（见第 3 步）
 ```
 
 缺哪项就从 WSL 的 `downloads/competition-data/` 传哪项，传完先用 `TRANSFER_SHA256SUMS` 校验，再解压。
@@ -292,7 +318,7 @@ $DATA/HAPS2_0/   $DATA/scene_datasets/mp3d/<scan>/<scan>.glb   $DATA/checkpoints
 | 2000 条 episode 的采集图片 | 几 GB |
 | checkpoint | 每个几百 MB |
 
-## ⑥ 冒烟：先不调模型跑通 20 条
+## 6. 冒烟：先不调模型跑通 20 条
 
 ```bash
 $HRUN scripts/run_rollout.py --data-root "$DATA" --source-root "$SRC" \
@@ -304,7 +330,7 @@ $HRUN scripts/run_rollout.py --data-root "$DATA" --source-root "$SRC" \
 看 `worker-gpu0.log` 有没有报错，`logs/` 里每条 episode 的事件日志是否合理（有没有原地打转、撞墙），以及最后打印的碰撞率。
 这一步不需要训练环境，也不需要模型服务，所以放在最前面做。
 
-## ⑦ 原版模型闭环 + 专家诊断
+## 7. 原版模型闭环 + 专家诊断
 
 先生成本轮的全部配置：
 
@@ -316,7 +342,7 @@ $HRUN scripts/run_rollout.py --data-root "$DATA" --source-root "$SRC" \
 export CFG=$ZBC/workspace/train-configs/r0
 ```
 
-这时 `r0-split` 里还没有数据，脚本会给出提示，这是正常的。服务和智能体的配置现在就能用；训练配置里只记了数据目录的路径，等 ⑧ 划分完数据，内容自然就对上了，不用重新生成。
+这时 `r0-split` 里还没有数据，脚本会给出提示，这是正常的。服务和智能体的配置现在就能用；训练配置里只记了数据目录的路径，等 8 划分完数据，内容自然就对上了，不用重新生成。
 `export CFG=...` 每个新终端都要执行一次。
 
 **卡的分工**：模型服务固定放 **6 号卡**（终端 A），仿真、采集都放 **4 号卡**（终端 B）。两边互不抢显存，可以同时跑。
@@ -361,9 +387,9 @@ $HRUN scripts/run_rollout.py --data-root "$DATA" --source-root "$SRC" --splits v
   - **专家也差**：说明建图、候选生成或执行有问题，训练救不了。先看汇总里的 `candidate_coverage`（候选里有没有正确方向）、`wrong_floor_rate`、碰撞率，再翻 `logs/` 里失败的 episode。
 - 20 条只是粗筛；专家本身也是启发式规则，它的分数不是严格的上限。
 
-服务可以继续开着，⑧ 拆指令还要用它。以后要停服务时，就在终端 A 按 **Ctrl-C**；不要用 `pkill python`，那样会连别人的进程一起杀掉。
+服务可以继续开着，8 拆指令还要用它。以后要停服务时，就在终端 A 按 **Ctrl-C**；不要用 `pkill python`，那样会连别人的进程一起杀掉。
 
-## ⑧ 采集专家数据
+## 8. 采集专家数据
 
 先拆好要采集的那批训练 episode 的指令。训练数据里的 prompt 必须带上和推理时一样的子目标清单，否则模型训练时看到的输入和实际使用时不一样。
 
@@ -421,7 +447,7 @@ $HRUN scripts/gen_decision_data.py --merge "$ZBC/workspace/decision_data/r0" \
 - 划分后的 json 用绝对路径引用 `r0/images` 里的图片，所以 `r0` 目录不能删。
 - 看一下 `manifest.json` 里的标签分布。stop 标签通常远少于 choose（每条 episode 只有一次停止）；如果 stop 少到只有个位数，就多采一些。
 
-## ⑨ 训练前先考原版
+## 9. 训练前先考原版
 
 终端 A 的 api-base 要开着；在终端 B 执行：
 
@@ -441,7 +467,7 @@ $HRUN scripts/eval_decision_offline.py --data "$ZBC/workspace/decision_data/r0-s
 结果会存成 `offline_eval_zbc-r0-base.json`。这是训练前的基线，后面每一轮都用同一份验证题来比。
 考完回终端 A 按 Ctrl-C 停掉服务。下面的训练要同时用 4、6 两张卡，所以服务必须先停。
 
-## ⑩ 训练
+## 10. 训练
 
 先试训 20 步：
 
@@ -490,7 +516,7 @@ CUDA_VISIBLE_DEVICES=4,6 FORCE_TORCHRUN=1 "$TCLI" train "$CFG/train.yaml" resume
 
 checkpoint 里存了优化器和学习率调度的状态，所以能接着训。续训时数据和配置都不能改。
 
-## ⑪ 合并 LoRA
+## 11. 合并 LoRA
 
 ```bash
 free -h; df -h "$ZBC"
@@ -501,7 +527,7 @@ CUDA_VISIBLE_DEVICES= "$TCLI" export "$CFG/export.yaml"
 合并必须基于原版 bf16 权重，不能在 4-bit 加载的模型上做，所以导出配置里没有 `quantization_bit`。
 这一步需要几十 GB 内存和约 16 GB 磁盘。`CUDA_VISIBLE_DEVICES=` 后面留空，表示不用任何 GPU。
 
-## ⑫ 微调后考试和闭环
+## 12. 微调后考试和闭环
 
 终端 A（`GPU=6 source ...native_env.sh`）：
 
@@ -529,7 +555,7 @@ $HRUN scripts/run_rollout.py --data-root "$DATA" --source-root "$SRC" --splits v
 关于行人：行人按墙钟时间动 12 秒。本地评测时模型每次思考要花几秒，这段时间里行人也在动；而官方是按你提交的动作序列重放，没有这些等待时间。
 所以本地算出的碰撞数和官方的可能有出入，参数要以官方回传的分数为准。
 
-## ⑬ DAgger 第 1 轮
+## 13. DAgger 第 1 轮
 
 保持 r0-nav 服务运行：
 
@@ -569,7 +595,7 @@ CUDA_VISIBLE_DEVICES= "$TCLI" export "$CFG/export.yaml"
 
 - `--reference`：验证场景和验证题都原样沿用 r0 的。新采集到的、属于验证场景的样本全部丢掉，不进训练集。这样每一轮都考同一份卷子，分数才能横向比较。
 - r1 是从原版基座出发，在 r0 + r1 的全部数据上重新训练一个 LoRA，而不是在 r0 的 LoRA 基础上接着训。这样结果更好解释，也不会把 r0 的偏差带进来。
-- 然后用 r1 的 `api-nav.yaml` 和 `agent-nav.json` 重做 ⑫。一般做 2 轮 DAgger 就够了；如果某一轮闭环分数不再提高，就停止。
+- 然后用 r1 的 `api-nav.yaml` 和 `agent-nav.json` 重做第 12 步。一般做 2 轮 DAgger 就够了；如果某一轮闭环分数不再提高，就停止。
 
 ## 提交
 
@@ -583,9 +609,9 @@ $HRUN scripts/make_submission.py --run-dir "$ZBC/workspace/runs/<全量那次>" 
 
 | 现象 | 先查 |
 |---|---|
-| check_env 导入失败 | ③ 的配置路径和 Habitat 补丁 |
+| check_env 导入失败 | 3 的配置路径和 Habitat 补丁 |
 | 拆指令 fallback 很多 | 服务是否正常；用 curl 发一条请求，看模型输出的是不是 JSON |
 | 离线考试 `json_ok` 低 | 原版模型属于正常现象；训练后仍然低，就检查训练数据里答案是否被截断 |
 | 专家 rollout 也很差 | 先不要训练：看 `candidate_coverage`、碰撞率，以及失败 episode 的事件日志 |
 | 训练 OOM | 服务有没有停；图片数和正文长度 |
-| 闭环分数比离线考试的提升小很多 | 正常现象：离线题都是专家走到的状态，闭环里模型会走到没见过的状态，这正是 ⑬ 要解决的 |
+| 闭环分数比离线考试的提升小很多 | 正常现象：离线题都是专家走到的状态，闭环里模型会走到没见过的状态，这正是第 13 步要解决的 |

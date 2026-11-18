@@ -15,6 +15,7 @@
   up       向上，地面为 0
 方位角 bearing 以正前方为 0，向左为正（逆时针）。
 """
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,20 +25,21 @@ from ..config import AgentCfg
 
 @dataclass
 class Scan:
-    bearings: np.ndarray   # (N,) 每条射线相对正前方的方位角（弧度）
-    ranges: np.ndarray     # (N,) 射线长度（米）
-    is_hit: np.ndarray     # (N,) 终点是否是障碍；False 表示只知道这段是空的
-    valid: np.ndarray      # (N,) 这条射线有没有任何信息
+    bearings: np.ndarray  # (N,) 每条射线相对正前方的方位角（弧度）
+    ranges: np.ndarray  # (N,) 射线长度（米）
+    is_hit: np.ndarray  # (N,) 终点是否是障碍；False 表示只知道这段是空的
+    valid: np.ndarray  # (N,) 这条射线有没有任何信息
 
 
 @dataclass
 class AgentFramePoints:
     """一帧深度反投影后的点（行方向已下采样，均为一维数组）。"""
+
     forward: np.ndarray
     left: np.ndarray
-    up: np.ndarray            # 离地高度
-    truncated: np.ndarray     # 该像素深度达到截断值（"这个方向 max_depth 内没东西"）
-    rows: np.ndarray          # 对应原图的行列号，便于和人体掩码对齐
+    up: np.ndarray  # 离地高度
+    truncated: np.ndarray  # 该像素深度达到截断值（"这个方向 max_depth 内没东西"）
+    rows: np.ndarray  # 对应原图的行列号，便于和人体掩码对齐
     cols: np.ndarray
 
 
@@ -65,7 +67,7 @@ def backproject(depth_m: np.ndarray, cfg: AgentCfg, pitch: float, row_stride: in
     rows, cols = rows.ravel(), cols.ravel()
     z = depth_m[rows, cols]
 
-    f = cfg.focal_px * (w / cfg.sensor.img_width)       # 图像被缩放时焦距按比例缩放
+    f = cfg.focal_px * (w / cfg.sensor.img_width)  # 图像被缩放时焦距按比例缩放
     cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
     x_right = (cols - cx) / f * z
     y_down = (rows - cy) / f * z
@@ -74,7 +76,7 @@ def backproject(depth_m: np.ndarray, cfg: AgentCfg, pitch: float, row_stride: in
     forward = z * cp + y_down * sp
     up = cfg.sensor.camera_height + z * sp - y_down * cp
     truncated = z >= cfg.sensor.max_depth * 0.99
-    keep = z > 0.05                                      # 0 深度是无效像素（贴脸或空洞）
+    keep = z > 0.05  # 0 深度是无效像素（贴脸或空洞）
     return AgentFramePoints(forward[keep], -x_right[keep], up[keep], truncated[keep], rows[keep], cols[keep])
 
 

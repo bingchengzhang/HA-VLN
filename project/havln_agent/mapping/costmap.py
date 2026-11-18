@@ -8,6 +8,7 @@
   未知格        ：可以走，但加一点代价（乐观规划，单视角下大量区域是未知的）
 整图 48 m 见方有九百多万格，每步整图重算太慢，所以只取 agent 周围 window_m 的窗口。
 """
+
 from dataclasses import dataclass
 from typing import Sequence, Tuple
 
@@ -15,24 +16,24 @@ import numpy as np
 from scipy import ndimage
 
 from ..config import AgentCfg
-from .static_layer import StaticLayer, UNKNOWN, OCCUPIED
+from .static_layer import OCCUPIED, UNKNOWN, StaticLayer
 
-HumanDisc = Tuple[float, float, float]     # (x, y, 半径)
+HumanDisc = Tuple[float, float, float]  # (x, y, 半径)
 
 
 @dataclass
 class Costmap:
-    lethal: np.ndarray        # (h, w) bool
-    cost: np.ndarray          # (h, w) float，附加代价（不含步长本身）
+    lethal: np.ndarray  # (h, w) bool
+    cost: np.ndarray  # (h, w) float，附加代价（不含步长本身）
     human_lethal: np.ndarray  # (h, w) bool，只由人造成的禁区
-    wall_lethal: np.ndarray   # (h, w) bool，只由墙造成的禁区
-    human_dist: np.ndarray    # (h, w) float，到最近人体（点或圆盘边缘）的距离，风险摘要用
-    known_free: np.ndarray    # (h, w) bool
-    dist_wall: np.ndarray     # (h, w) float，到最近墙格的距离（未膨胀）
-    agent_r: float            # agent 半径：离墙比它近才会真的擦到
-    wall_r: float             # 墙禁区半径 = agent 半径 + 墙余量
-    unknown: np.ndarray       # (h, w) bool
-    i0: int                   # 窗口在静态层里的起始格
+    wall_lethal: np.ndarray  # (h, w) bool，只由墙造成的禁区
+    human_dist: np.ndarray  # (h, w) float，到最近人体（点或圆盘边缘）的距离，风险摘要用
+    known_free: np.ndarray  # (h, w) bool
+    dist_wall: np.ndarray  # (h, w) float，到最近墙格的距离（未膨胀）
+    agent_r: float  # agent 半径：离墙比它近才会真的擦到
+    wall_r: float  # 墙禁区半径 = agent 半径 + 墙余量
+    unknown: np.ndarray  # (h, w) bool
+    i0: int  # 窗口在静态层里的起始格
     j0: int
     res: float
     layer: StaticLayer
@@ -59,8 +60,14 @@ def _ramp(dist, inner, outer, peak):
     return np.clip((outer - dist) / span, 0.0, 1.0) * peak
 
 
-def build_costmap(layer: StaticLayer, center_xy, human_points: np.ndarray,
-                  human_discs: Sequence[HumanDisc], cfg: AgentCfg, human_margin: float = None) -> Costmap:
+def build_costmap(
+    layer: StaticLayer,
+    center_xy,
+    human_points: np.ndarray,
+    human_discs: Sequence[HumanDisc],
+    cfg: AgentCfg,
+    human_margin: float = None,
+) -> Costmap:
     """human_margin：临时覆盖人的余量（被人挡太久时放宽），默认用 cfg.cost.human_margin。"""
     c = cfg.cost
     h_margin = c.human_margin if human_margin is None else human_margin
@@ -111,6 +118,19 @@ def build_costmap(layer: StaticLayer, center_xy, human_points: np.ndarray,
     cost = np.maximum(cost, _ramp(dist_h, hum_r, hum_r + c.human_soft_radius, c.soft_cost_max))
     lethal |= human_lethal
 
-    return Costmap(lethal=lethal, cost=cost, human_lethal=human_lethal, wall_lethal=wall_lethal, human_dist=dist_h,
-                   known_free=grid == 0, dist_wall=dist_wall, agent_r=c.agent_radius, wall_r=wall_r,
-                   unknown=unknown, i0=i0, j0=j0, res=res, layer=layer)
+    return Costmap(
+        lethal=lethal,
+        cost=cost,
+        human_lethal=human_lethal,
+        wall_lethal=wall_lethal,
+        human_dist=dist_h,
+        known_free=grid == 0,
+        dist_wall=dist_wall,
+        agent_r=c.agent_radius,
+        wall_r=wall_r,
+        unknown=unknown,
+        i0=i0,
+        j0=j0,
+        res=res,
+        layer=layer,
+    )
