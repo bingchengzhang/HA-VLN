@@ -5,6 +5,7 @@
 
 文件版本钉在官方工具包使用的同一个 Hugging Face 提交上，下完用 gzip + json 校验能打开。
 """
+
 import argparse
 import gzip
 import json
@@ -14,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = "fly1113/HA-VLN"
-REVISION = "c5f1cec167964bda3ba343acc3a18e7aef8540dd"   # 与 toolkit scripts/resources.json 的 hf_revision 一致
+REVISION = "c5f1cec167964bda3ba343acc3a18e7aef8540dd"  # 与 toolkit scripts/resources.json 的 hf_revision 一致
 FILES = ["HA-R2R/train/train.json.gz"]
 
 

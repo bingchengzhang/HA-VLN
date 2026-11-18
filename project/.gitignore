@@ -1,5 +1,14 @@
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
 # 数据、权重、运行结果、缓存一律不进 git
 /data/
 /weights/

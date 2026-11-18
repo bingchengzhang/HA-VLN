@@ -4,6 +4,7 @@
 不代表 Habitat 的真实效果。相机参数、动作步长与 AgentCfg 一致。
 可通行规则模仿导航网格：台阶高差 ≤ 0.2 m 能走上去/走下来，更高就被挡住（计一次碰撞）。
 """
+
 import math
 
 import numpy as np
@@ -24,7 +25,12 @@ class BoxScene:
         self.walls = [(np.array(a, float), np.array(b, float), 0.0, WALL_TOP, False) for a, b in walls]
         self.blocks = [tuple(map(float, b)) for b in blocks]
         for x0, y0, x1, y1, zb, zt in self.blocks:
-            for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+            for a, b in (
+                ((x0, y0), (x1, y0)),
+                ((x1, y0), (x1, y1)),
+                ((x1, y1), (x0, y1)),
+                ((x0, y1), (x0, y0)),
+            ):
                 self.walls.append((np.array(a), np.array(b), zb, zt, zb <= 1e-6))
         self.humans = [np.array(h, float) for h in humans]
         self.agent_r, self.human_r = agent_radius, human_radius
@@ -59,8 +65,8 @@ class BoxScene:
         z = np.full((h, w), s.max_depth)
         inst = np.zeros((h, w), dtype=np.int32)
         with np.errstate(divide="ignore", invalid="ignore"):
-            z = np.minimum(z, np.where(up < 0, -cz / up, np.inf))                 # 地面 z=0
-            for x0, y0, x1, y1, zb, zt in self.blocks:                              # 块的顶面和底面
+            z = np.minimum(z, np.where(up < 0, -cz / up, np.inf))  # 地面 z=0
+            for x0, y0, x1, y1, zb, zt in self.blocks:  # 块的顶面和底面
                 for zz in (zt, zb) if zb > 1e-6 else (zt,):
                     t = (zz - cz) / up
                     px, py = x + t * dx, y + t * dy
@@ -79,7 +85,7 @@ class BoxScene:
                 ox, oy = x - c[0], y - c[1]
                 A = dx * dx + dy * dy
                 B = 2 * (ox * dx + oy * dy)
-                C = ox * ox + oy * oy - self.human_r ** 2
+                C = ox * ox + oy * oy - self.human_r**2
                 disc = B * B - 4 * A * C
                 t = (-B - np.sqrt(np.maximum(disc, 0))) / (2 * A)
                 hz = cz + t * up
@@ -90,7 +96,7 @@ class BoxScene:
         z = np.clip(z, 0, s.max_depth)
         depth = (z / s.max_depth)[..., None].astype(np.float32)
         shade = (255 * (1 - np.clip(z / s.max_depth, 0, 1))).astype(np.uint8)
-        rgb = np.stack([shade] * 3, axis=-1)[:s.rgb_height, :s.rgb_width]
+        rgb = np.stack([shade] * 3, axis=-1)[: s.rgb_height, : s.rgb_width]
         return depth, inst, rgb
 
     # ---------- 运动 ----------
@@ -107,7 +113,9 @@ class BoxScene:
         return d
 
     def human_clear(self, x, y):
-        return min((float(np.hypot(x - c[0], y - c[1])) - self.human_r for c in self.humans), default=math.inf)
+        return min(
+            (float(np.hypot(x - c[0], y - c[1])) - self.human_r for c in self.humans), default=math.inf
+        )
 
     def step(self, pose, action):
         x, y, yaw = pose
@@ -120,8 +128,11 @@ class BoxScene:
             return pose
         nx, ny = x + s.step_len * math.cos(yaw), y + s.step_len * math.sin(yaw)
         f0, f1 = self.floor_h(x, y), self.floor_h(nx, ny)
-        blocked = (abs(f1 - f0) > MAX_CLIMB + 1e-6 or self.clearance(nx, ny, f1) < self.agent_r
-                   or self.human_clear(nx, ny) < self.agent_r)
+        blocked = (
+            abs(f1 - f0) > MAX_CLIMB + 1e-6
+            or self.clearance(nx, ny, f1) < self.agent_r
+            or self.human_clear(nx, ny) < self.agent_r
+        )
         if blocked:
             self.collisions += 1
             return pose
@@ -164,6 +175,10 @@ def stairs_blocks(x_start, n_steps, rise=0.18, run=0.28, y0=-0.8, y1=0.8, top_le
 def stairs_scene(cfg, n_steps=10):
     """直走廊尽头接一段上行楼梯：x∈[2, 4.8] 是 10 级台阶，之后是高 1.8 m 的二层平台，长 3 m，尽头是墙。"""
     end = 2.0 + n_steps * 0.28 + 3.0
-    walls = [((-1.0, -0.8), (end, -0.8)), ((-1.0, 0.8), (end, 0.8)),
-             ((-1.0, -0.8), (-1.0, 0.8)), ((end, -0.8), (end, 0.8))]
+    walls = [
+        ((-1.0, -0.8), (end, -0.8)),
+        ((-1.0, 0.8), (end, 0.8)),
+        ((-1.0, -0.8), (-1.0, 0.8)),
+        ((end, -0.8), (end, 0.8)),
+    ]
     return BoxScene(cfg, walls, blocks=stairs_blocks(2.0, n_steps))

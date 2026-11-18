@@ -6,12 +6,13 @@ native_env.sh 会自动调用；单独运行可以看它找到了什么：
 
   $HPY scripts/native_paths.py --root /mnt/data/zbc/image --explain
 """
+
 import argparse
 import sys
 from pathlib import Path
 
 PACKAGES = ["habitat", "habitat_extensions", "vlnce_baselines", "HASimulator", "havln_scoring"]
-SKIP = {"site-packages", "dist-packages"}          # 镜像自带 python 的第三方包不拿：版本可能与本机环境冲突
+SKIP = {"site-packages", "dist-packages"}  # 镜像自带 python 的第三方包不拿：版本可能与本机环境冲突
 
 
 def main():

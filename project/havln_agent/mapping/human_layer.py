@@ -10,6 +10,7 @@
   3. 中心跨帧做最近邻关联，估速度；看不见的人保留，不确定半径随时间增长
 避障用点（形状不丢），跟踪用中心（有身份），这两件事刻意分开。
 """
+
 from dataclasses import dataclass, field
 from typing import List
 
@@ -27,9 +28,9 @@ class Track:
     y: float
     vx: float = 0.0
     vy: float = 0.0
-    last_seen: float = 0.0       # 秒（episode 内的时间）
+    last_seen: float = 0.0  # 秒（episode 内的时间）
     hits: int = 1
-    z: float = 0.0               # 人体点的中位世界高度（约在腰部），用于区分楼层
+    z: float = 0.0  # 人体点的中位世界高度（约在腰部），用于区分楼层
 
     def speed(self):
         return float(np.hypot(self.vx, self.vy))
@@ -38,12 +39,14 @@ class Track:
 @dataclass
 class HumanObservation:
     """一帧的行人观测（世界坐标）。"""
-    points_xy: np.ndarray                           # (N, 2) 本帧所有人体点（障碍高度带内）
-    centers: List[tuple] = field(default_factory=list)   # 每个实例的中心 (x, y, z)
+
+    points_xy: np.ndarray  # (N, 2) 本帧所有人体点（障碍高度带内）
+    centers: List[tuple] = field(default_factory=list)  # 每个实例的中心 (x, y, z)
 
 
-def observe_humans(pts: AgentFramePoints, instance_ids: np.ndarray, pose, cfg: AgentCfg,
-                   feet_h: float = 0.0) -> HumanObservation:
+def observe_humans(
+    pts: AgentFramePoints, instance_ids: np.ndarray, pose, cfg: AgentCfg, feet_h: float = 0.0
+) -> HumanObservation:
     """instance_ids: 与深度图同尺寸的 int 图，0 为背景，k>0 为第 k 个人。"""
     m, h = cfg.map, cfg.human
     if instance_ids is None:
@@ -57,14 +60,14 @@ def observe_humans(pts: AgentFramePoints, instance_ids: np.ndarray, pose, cfg: A
     centers = []
     for k in np.unique(inst[sel]):
         mk = inst[sel] == k
-        if mk.sum() < h.min_mask_pixels // 4:       # 行方向已隔行采样，阈值相应缩小
+        if mk.sum() < h.min_mask_pixels // 4:  # 行方向已隔行采样，阈值相应缩小
             continue
         # 用中位数而不是均值：掩码边缘偶尔混入背景像素
-        f = np.median(pts.forward[sel][mk])
-        l = np.median(pts.left[sel][mk])
-        r = np.hypot(f, l)
-        scale = (r + h.body_half_depth) / max(r, 1e-6)   # 沿视线往后补半个身体厚度
-        cx, cy = agent_to_world(pose, f * scale, l * scale)
+        forward = np.median(pts.forward[sel][mk])
+        left = np.median(pts.left[sel][mk])
+        radius = np.hypot(forward, left)
+        scale = (radius + h.body_half_depth) / max(radius, 1e-6)  # 沿视线往后补半个身体厚度
+        cx, cy = agent_to_world(pose, forward * scale, left * scale)
         cz = feet_h + float(np.median(pts.up[sel][mk]))
         centers.append((float(cx), float(cy), cz))
     return HumanObservation(points, centers)
@@ -110,7 +113,7 @@ class HumanLayer:
             if t - tr.last_seen > h.track_ttl_s:
                 continue
             if idx in unmatched and visible_fn is not None and visible_fn(tr.x, tr.y):
-                continue                                   # 该看见却没看见：人已离开
+                continue  # 该看见却没看见：人已离开
             keep.append(tr)
         self.tracks = keep
 
@@ -148,7 +151,10 @@ class HumanLayer:
             rad = c.unseen_body_radius + extra
             if agent_xy is not None:
                 dist = float(np.hypot(px - agent_xy[0], py - agent_xy[1]))
-                rad = min(rad, max(0.5 * c.unseen_body_radius, dist - c.agent_radius - c.human_margin_relaxed - 0.05))
+                rad = min(
+                    rad,
+                    max(0.5 * c.unseen_body_radius, dist - c.agent_radius - c.human_margin_relaxed - 0.05),
+                )
             out.append((px, py, rad))
         return out
 
@@ -167,14 +173,24 @@ class HumanLayer:
     def describe(self, pose, feet_h=None):
         """给慢回路的结构化描述：每个已知行人相对 agent 的距离、方位、是否静止。"""
         from ..geometry import world_to_agent
+
         out = []
         for tr in self.tracks:
             if not self._same_floor(tr, feet_h):
                 continue
-            f, l = world_to_agent(pose, tr.x, tr.y)
-            dist = float(np.hypot(f, l))
-            ang = float(np.degrees(np.arctan2(l, f)))
-            side = "前方" if abs(ang) < 30 else ("左前" if 0 < ang < 90 else "右前" if -90 < ang < 0 else "后方")
-            out.append({"id": tr.tid, "distance_m": round(dist, 1), "bearing_deg": round(ang),
-                        "side": side, "static": tr.speed() < self.cfg.human.static_speed})
+            forward, left = world_to_agent(pose, tr.x, tr.y)
+            dist = float(np.hypot(forward, left))
+            ang = float(np.degrees(np.arctan2(left, forward)))
+            side = (
+                "前方" if abs(ang) < 30 else ("左前" if 0 < ang < 90 else "右前" if -90 < ang < 0 else "后方")
+            )
+            out.append(
+                {
+                    "id": tr.tid,
+                    "distance_m": round(dist, 1),
+                    "bearing_deg": round(ang),
+                    "side": side,
+                    "static": tr.speed() < self.cfg.human.static_speed,
+                }
+            )
         return out

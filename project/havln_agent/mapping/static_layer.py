@@ -15,6 +15,7 @@
   被屏障分隔的两侧，标记较高的那一格为障碍。
 栅格坐标：世界坐标 (x, y) 以 episode 起点为原点，格子 (i, j) 中 i 沿 x、j 沿 y。
 """
+
 import math
 
 import numpy as np
@@ -34,9 +35,9 @@ class StaticLayer:
         self.n = int(round(m.size_m / m.resolution))
         self.x0 = origin_xy[0] - m.size_m / 2.0
         self.y0 = origin_xy[1] - m.size_m / 2.0
-        self.ground = np.full((self.n, self.n), np.inf, dtype=np.float32)    # inf = 未观测
+        self.ground = np.full((self.n, self.n), np.inf, dtype=np.float32)  # inf = 未观测
         self.top = np.full((self.n, self.n), -np.inf, dtype=np.float32)
-        self.forced = np.zeros((self.n, self.n), dtype=bool)                  # 撞上过的位置
+        self.forced = np.zeros((self.n, self.n), dtype=bool)  # 撞上过的位置
         self._footprint = None
         self.version = 0
 
@@ -84,7 +85,7 @@ class StaticLayer:
         r = self.cfg.cost.agent_radius
         k = int(math.ceil(r / self.res))
         ci, cj = self.world_to_cell(x, y)
-        ii, jj = np.mgrid[ci - k:ci + k + 1, cj - k:cj + k + 1]
+        ii, jj = np.mgrid[ci - k : ci + k + 1, cj - k : cj + k + 1]
         wx, wy = self.cell_to_world(ii, jj)
         sel = (np.hypot(wx - x, wy - y) <= r) & self.in_bounds(ii, jj)
         self.ground[ii[sel], jj[sel]] = feet_h
@@ -116,8 +117,13 @@ class StaticLayer:
         # 同一阶面的多帧投影会有毫米级差异；容差只用于观测判别，物理跨步上限仍为 max_step_h。
         step_limit = m.max_step_h + m.height_tolerance_m
         vertical = known & (self.top[i0:i1, j0:j1] - g > step_limit)
-        barrier = step_barriers(np.where(known, g, np.nan), self.res, step_limit,
-                                math.tan(math.radians(m.gap_slope_deg)), int(m.max_gap_m / self.res))
+        barrier = step_barriers(
+            np.where(known, g, np.nan),
+            self.res,
+            step_limit,
+            math.tan(math.radians(m.gap_slope_deg)),
+            int(m.max_gap_m / self.res),
+        )
         occ = vertical | barrier | self.forced[i0:i1, j0:j1]
         if self._footprint is not None:
             # 高差分析不能把已经确认由身体占据的区域重新变成墙；只保护本步脚印，外侧断崖仍保留。
@@ -131,17 +137,19 @@ class StaticLayer:
         return out
 
 
-def step_barriers(g: np.ndarray, res: float, max_step: float, tan_slope: float, max_gap_cells: int) -> np.ndarray:
+def step_barriers(
+    g: np.ndarray, res: float, max_step: float, tan_slope: float, max_gap_cells: int
+) -> np.ndarray:
     """沿 x、y 两个方向扫描：相邻两个已知格（中间可隔着未观测的缝）高差超过允许值，较高的一格记为屏障。
     允许值 = max_step + tan(坡度) × 缝隙宽度。缝隙超过 max_gap_cells 就不比较（离得太远，无从判断）。"""
     occ = np.zeros(g.shape, dtype=bool)
-    for G, O in ((g, occ), (g.T, occ.T)):
-        n_rows, n_cols = G.shape
+    for heights, barrier in ((g, occ), (g.T, occ.T)):
+        n_rows, n_cols = heights.shape
         cols = np.arange(n_cols)
         last_h = np.full(n_cols, np.nan)
-        last_i = np.full(n_cols, -10 ** 6)
+        last_i = np.full(n_cols, -(10**6))
         for i in range(n_rows):
-            row = G[i]
+            row = heights[i]
             known = np.isfinite(row)
             gap = i - last_i - 1
             cmp = known & np.isfinite(last_h) & (gap <= max_gap_cells)
@@ -150,9 +158,9 @@ def step_barriers(g: np.ndarray, res: float, max_step: float, tan_slope: float, 
                 allow = max_step + tan_slope * gap * res
                 bad = cmp & (np.abs(diff) > allow)
                 higher_here = bad & (diff > 0)
-                O[i, higher_here] = True
+                barrier[i, higher_here] = True
                 lower_here = bad & (diff < 0)
-                O[last_i[lower_here], cols[lower_here]] = True
+                barrier[last_i[lower_here], cols[lower_here]] = True
             last_h = np.where(known, row, last_h)
             last_i = np.where(known, i, last_i)
     return occ

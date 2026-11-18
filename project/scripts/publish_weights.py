@@ -1,75 +1,93 @@
 """Publish only inference files to Hugging Face; credentials stay in the local HF store."""
+
 import argparse
 import fnmatch
 import hashlib
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-
-COMMON = ('config.json', '*token*.json', 'chat_template.json', 'merges.txt',
-          'vocab.json', 'preprocessor_config.json', 'generation_config.json',
-          'LICENSE', 'LICENSE.txt', 'NOTICE')
+COMMON = (
+    "config.json",
+    "*token*.json",
+    "chat_template.json",
+    "merges.txt",
+    "vocab.json",
+    "preprocessor_config.json",
+    "generation_config.json",
+    "LICENSE",
+    "LICENSE.txt",
+    "NOTICE",
+)
 WEIGHTS = {
-    'merged': ('model*.safetensors', 'model.safetensors.index.json'),
-    'adapter': ('adapter_model.safetensors', 'adapter_config.json'),
+    "merged": ("model*.safetensors", "model.safetensors.index.json"),
+    "adapter": ("adapter_model.safetensors", "adapter_config.json"),
 }
 
 
 def checksum(path):
     digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b''):
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kind', choices=WEIGHTS, required=True)
-    parser.add_argument('--folder', type=Path, required=True)
-    parser.add_argument('--repo', required=True, help='Hugging Face owner/model-name')
-    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument("--kind", choices=WEIGHTS, required=True)
+    parser.add_argument("--folder", type=Path, required=True)
+    parser.add_argument("--repo", required=True, help="Hugging Face owner/model-name")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if len(args.repo.split('/')) != 2 or not all(args.repo.split('/')):
-        parser.error('--repo must be owner/model-name')
+    if len(args.repo.split("/")) != 2 or not all(args.repo.split("/")):
+        parser.error("--repo must be owner/model-name")
     folder = args.folder.resolve(strict=True)
     patterns = COMMON + WEIGHTS[args.kind]
-    files = sorted(p for p in folder.iterdir() if p.is_file() and not p.is_symlink()
-                   and any(fnmatch.fnmatchcase(p.name, pattern) for pattern in patterns))
-    required = ('config.json', 'model.safetensors.index.json') if args.kind == 'merged' else (
-        'adapter_config.json', 'adapter_model.safetensors')
+    files = sorted(
+        p
+        for p in folder.iterdir()
+        if p.is_file()
+        and not p.is_symlink()
+        and any(fnmatch.fnmatchcase(p.name, pattern) for pattern in patterns)
+    )
+    required = (
+        ("config.json", "model.safetensors.index.json")
+        if args.kind == "merged"
+        else ("adapter_config.json", "adapter_model.safetensors")
+    )
     names = {p.name for p in files}
     if not set(required) <= names:
-        parser.error('Missing required model files: ' + ', '.join(set(required) - names))
-    if args.kind == 'merged':
-        index = json.loads((folder / 'model.safetensors.index.json').read_text())
-        if not set(index['weight_map'].values()) <= names:
-            parser.error('Model index references missing shards')
+        parser.error("Missing required model files: " + ", ".join(set(required) - names))
+    if args.kind == "merged":
+        index = json.loads((folder / "model.safetensors.index.json").read_text())
+        if not set(index["weight_map"].values()) <= names:
+            parser.error("Model index references missing shards")
     for path in files:
-        print(f'{path.name}\t{path.stat().st_size}')
-    print(f'{len(files)} files, {sum(p.stat().st_size for p in files)} bytes')
+        print(f"{path.name}\t{path.stat().st_size}")
+    print(f"{len(files)} files, {sum(p.stat().st_size for p in files)} bytes")
     if args.dry_run:
         return
 
     from huggingface_hub import HfApi
+
     api = HfApi()
     api.whoami()  # Fail before hashing or creating a repository when login is missing.
     before = {p.name: (p.stat().st_size, p.stat().st_mtime_ns) for p in files}
     hashes = {p.name: checksum(p) for p in files}
     sizes = {p.name: p.stat().st_size for p in files}
     overrides = {}
-    if args.kind == 'adapter':
-        config = json.loads((folder / 'adapter_config.json').read_text())
+    if args.kind == "adapter":
+        config = json.loads((folder / "adapter_config.json").read_text())
         # A training-server absolute path cannot identify the public base model.
-        config['base_model_name_or_path'] = 'Qwen/Qwen2.5-VL-7B-Instruct'
-        overrides['adapter_config.json'] = (json.dumps(config, indent=2) + '\n').encode()
+        config["base_model_name_or_path"] = "Qwen/Qwen2.5-VL-7B-Instruct"
+        overrides["adapter_config.json"] = (json.dumps(config, indent=2) + "\n").encode()
         for name, content in overrides.items():
             hashes[name] = hashlib.sha256(content).hexdigest()
             sizes[name] = len(content)
     if any(before[p.name] != (p.stat().st_size, p.stat().st_mtime_ns) for p in files):
-        raise RuntimeError('Source model changed during hashing; retry after export completes')
-    card = f'''---
+        raise RuntimeError("Source model changed during hashing; retry after export completes")
+    card = f"""---
 base_model: Qwen/Qwen2.5-VL-7B-Instruct
 tags:
 - ha-vln
@@ -90,30 +108,35 @@ also covers models derived from its data:
 https://kaldir.vc.in.tum.de/matterport/MP_TOS.pdf
 
 SHA256SUMS contains the checksums of the published inference files.
-'''
-    api.create_repo(args.repo, repo_type='model', private=False, exist_ok=True)
+"""
+    api.create_repo(args.repo, repo_type="model", private=False, exist_ok=True)
     # Pass exact names so training logs and checkpoints cannot enter the model repository.
-    api.upload_folder(repo_id=args.repo, repo_type='model', folder_path=folder,
-                      allow_patterns=[p.name for p in files if p.name not in overrides])
+    api.upload_folder(
+        repo_id=args.repo,
+        repo_type="model",
+        folder_path=folder,
+        allow_patterns=[p.name for p in files if p.name not in overrides],
+    )
     with tempfile.TemporaryDirectory() as temporary:
         metadata = Path(temporary)
         for name, content in overrides.items():
             (metadata / name).write_bytes(content)
-        (metadata / 'README.md').write_text(card, encoding='utf-8')
-        (metadata / 'SHA256SUMS').write_text(
-            ''.join(f'{hashes[p.name]}  {p.name}\n' for p in files), encoding='utf-8')
-        api.upload_folder(repo_id=args.repo, repo_type='model', folder_path=metadata)
+        (metadata / "README.md").write_text(card, encoding="utf-8")
+        (metadata / "SHA256SUMS").write_text(
+            "".join(f"{hashes[p.name]}  {p.name}\n" for p in files), encoding="utf-8"
+        )
+        api.upload_folder(repo_id=args.repo, repo_type="model", folder_path=metadata)
     remote = {p.rfilename: p for p in api.model_info(args.repo, files_metadata=True).siblings}
     for path in files:
         item = remote.get(path.name)
         if item is None or item.size != sizes[path.name]:
-            raise RuntimeError(f'Remote size verification failed: {path.name}')
+            raise RuntimeError(f"Remote size verification failed: {path.name}")
         if item.lfs and item.lfs.sha256 != hashes[path.name]:
-            raise RuntimeError(f'Remote SHA256 verification failed: {path.name}')
+            raise RuntimeError(f"Remote SHA256 verification failed: {path.name}")
         if before[path.name] != (path.stat().st_size, path.stat().st_mtime_ns):
-            raise RuntimeError(f'Source changed during upload: {path.name}')
-    print('VERIFIED https://huggingface.co/' + args.repo)
+            raise RuntimeError(f"Source changed during upload: {path.name}")
+    print("VERIFIED https://huggingface.co/" + args.repo)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

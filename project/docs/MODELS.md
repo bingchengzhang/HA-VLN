@@ -20,7 +20,7 @@ GitHub 保存实现与配置；Hugging Face 保存本项目训练后的模型。
 hf download bingchengzhang/HA-VLN-nav-r0-lora --local-dir /path/to/nav-r0-lora
 ```
 
-LoRA 需要配合上面的原版 Qwen 基座使用，不能作为完整模型直接加载。仓库内的 `SHA256SUMS` 可用于下载后校验。
+LoRA 需要配合上面的原版 Qwen 基座使用，不能作为完整模型直接加载。发布到 Hugging Face 时会带上 `SHA256SUMS`，下载后用它校验。
 
 已有 LLaMA-Factory 环境时，可以直接从公开仓库重建完整模型，无需服务器上的训练目录：
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 在宿主机上用 vLLM 起一个 OpenAI 兼容的 Qwen2.5-VL 服务，和 Habitat 容器放在同一个 docker 网络里。
 #
-#   GPU=1 bash scripts/serve_vlm.sh                  # 起服务（GPU 换成师兄指定的卡）
+#   GPU=1 bash scripts/serve_vlm.sh                  # 起服务（GPU 换成分配到的卡）
 #   LORA=$HOME/zbc/lora/nav bash scripts/serve_vlm.sh # 带微调后的 LoRA 适配器
 #   docker logs -f zbc-vlm                            # 看加载进度
 #   docker stop zbc-vlm && docker rm zbc-vlm          # 用完关掉，释放显存

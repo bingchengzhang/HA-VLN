@@ -13,26 +13,27 @@
 
 --cache 保存下载的层（按摘要命名，下载完校验 sha256），中断后重跑会跳过已下好的层。整个镜像可能有十几 GB。
 """
+
 import argparse
 import fnmatch
-import gzip
 import hashlib
 import json
 import os
 import shutil
-import sys
 import tarfile
 import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
 
 IMAGE = "ghcr.io/jostarxiong/havln-challenge-2026@sha256:e1a0544f66beaf5218cc9df63da51b4a1a22a6bf0471ca0c2f75e81ee02a6556"
-ACCEPT = ", ".join([
-    "application/vnd.oci.image.index.v1+json",
-    "application/vnd.docker.distribution.manifest.list.v2+json",
-    "application/vnd.oci.image.manifest.v1+json",
-    "application/vnd.docker.distribution.manifest.v2+json",
-])
+ACCEPT = ", ".join(
+    [
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    ]
+)
 DEFAULT_PREFIXES = ["app/", "opt/havln-challenge/"]
 DEFAULT_GLOBS = ["*/site-packages/*.pth", "*/site-packages/*.egg-link"]
 
@@ -73,9 +74,12 @@ def token(host, name):
 def manifest(host, name, ref, auth):
     with _get(f"https://{host}/v2/{name}/manifests/{ref}", {"Accept": ACCEPT, **auth}) as r:
         m = json.loads(r.read())
-    if "manifests" in m:                               # 多架构索引：选 linux/amd64
-        pick = [d for d in m["manifests"]
-                if d.get("platform", {}).get("os") == "linux" and d["platform"].get("architecture") == "amd64"]
+    if "manifests" in m:  # 多架构索引：选 linux/amd64
+        pick = [
+            d
+            for d in m["manifests"]
+            if d.get("platform", {}).get("os") == "linux" and d["platform"].get("architecture") == "amd64"
+        ]
         if not pick:
             raise SystemExit("镜像里没有 linux/amd64 版本")
         return manifest(host, name, pick[0]["digest"], auth)
@@ -120,8 +124,9 @@ def _clean(name):
 
 
 def wanted(path, prefixes, globs):
-    return any(path == p.rstrip("/") or path.startswith(p) for p in prefixes) or \
-        any(fnmatch.fnmatch(path, g) for g in globs)
+    return any(path == p.rstrip("/") or path.startswith(p) for p in prefixes) or any(
+        fnmatch.fnmatch(path, g) for g in globs
+    )
 
 
 def _remove(target: Path):
@@ -140,9 +145,9 @@ def apply_layer(fileobj, out: Path, prefixes, globs, index: dict, layer_id: str)
             if not path:
                 continue
             base = PurePosixPath(path).name
-            if base.startswith(".wh."):                    # 删除标记
+            if base.startswith(".wh."):  # 删除标记
                 parent = str(PurePosixPath(path).parent)
-                if base == ".wh..wh..opq":                 # 整个目录被替换成新层的版本
+                if base == ".wh..wh..opq":  # 整个目录被替换成新层的版本
                     for k in [k for k in index if k.startswith(parent + "/")]:
                         index.pop(k)
                     if wanted(parent + "/", prefixes, globs) and (out / parent).is_dir():
@@ -166,7 +171,7 @@ def apply_layer(fileobj, out: Path, prefixes, globs, index: dict, layer_id: str)
             if target.exists() or target.is_symlink():
                 _remove(target)
             if m.issym():
-                os.symlink(m.linkname, target)             # 原样保留；指向镜像内绝对路径的链接在本机会是断的
+                os.symlink(m.linkname, target)  # 原样保留；指向镜像内绝对路径的链接在本机会是断的
             elif m.islnk():
                 src = out / (_clean(m.linkname) or "")
                 if src.is_file():
@@ -197,7 +202,9 @@ def main():
     auth = {"Authorization": f"Bearer {token(host, name)}"}
     m = manifest(host, name, ref, auth)
     layers = m["layers"]
-    print(f"{args.image}\n共 {len(layers)} 层，压缩后合计 {sum(l['size'] for l in layers) / 2**30:.1f} GB")
+    print(
+        f"{args.image}\n共 {len(layers)} 层，压缩后合计 {sum(item['size'] for item in layers) / 2**30:.1f} GB"
+    )
     with fetch_blob(host, name, m["config"]["digest"], auth, cache).open() as f:
         (out / "image_config.json").write_text(json.dumps(json.load(f), indent=2))
     index = {}
@@ -207,7 +214,9 @@ def main():
             n = apply_layer(f, out, args.prefix, args.glob, index, layer["digest"][7:19])
         print(f"第 {k + 1}/{len(layers)} 层：取出 {n} 个文件")
     (out / "index.txt").write_text("\n".join(sorted(index)) + "\n")
-    print(f"完成。镜像文件清单 {out}/index.txt（{len(index)} 条），镜像环境变量见 image_config.json 的 config.Env")
+    print(
+        f"完成。镜像文件清单 {out}/index.txt（{len(index)} 条），镜像环境变量见 image_config.json 的 config.Env"
+    )
 
 
 if __name__ == "__main__":

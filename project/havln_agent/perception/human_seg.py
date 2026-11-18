@@ -7,6 +7,7 @@
 仿真里的人是 SMPL 网格渲染的，域差要实测：scripts/eval_segmenter.py 给出召回率，
 不够再用 scripts/gen_seg_labels.py 生成的自动标签微调。
 """
+
 from typing import Optional
 
 import numpy as np
@@ -30,15 +31,28 @@ class NullSegmenter(HumanSegmenter):
 
 
 class YoloSegSegmenter(HumanSegmenter):
-    def __init__(self, weights: str = "yolov8m-seg.pt", conf: float = 0.35, device: Optional[str] = None,
-                 min_pixels: int = 80, imgsz: int = 320):
-        from ultralytics import YOLO          # 只在真正用到时导入，单元测试不依赖它
+    def __init__(
+        self,
+        weights: str = "yolov8m-seg.pt",
+        conf: float = 0.35,
+        device: Optional[str] = None,
+        min_pixels: int = 80,
+        imgsz: int = 320,
+    ):
+        from ultralytics import YOLO  # 只在真正用到时导入，单元测试不依赖它
+
         self.model = YOLO(weights)
         self.conf, self.device, self.min_pixels, self.imgsz = conf, device, min_pixels, imgsz
 
     def segment(self, rgb, out_shape):
-        res = self.model.predict(rgb[..., :3], imgsz=self.imgsz, conf=self.conf,
-                                 device=self.device, verbose=False, retina_masks=True)[0]
+        res = self.model.predict(
+            rgb[..., :3],
+            imgsz=self.imgsz,
+            conf=self.conf,
+            device=self.device,
+            verbose=False,
+            retina_masks=True,
+        )[0]
         out = np.zeros(out_shape, dtype=np.int32)
         if res.boxes is None or len(res.boxes) == 0:
             return out, set()
@@ -47,9 +61,9 @@ class YoloSegSegmenter(HumanSegmenter):
         labels = {names[c] for c in cls if c != 0}
         if res.masks is None:
             return out, labels
-        masks = res.masks.data.cpu().numpy() > 0.5                 # (K, h, w)，retina_masks 下与原图同尺寸
+        masks = res.masks.data.cpu().numpy() > 0.5  # (K, h, w)，retina_masks 下与原图同尺寸
         conf = res.boxes.conf.cpu().numpy()
-        order = [k for k in np.argsort(conf) if cls[k] == 0]       # 只取人；低置信度先画，高置信度覆盖
+        order = [k for k in np.argsort(conf) if cls[k] == 0]  # 只取人；低置信度先画，高置信度覆盖
         k_id = 0
         for k in order:
             m = _resize_nearest(masks[k], out_shape)

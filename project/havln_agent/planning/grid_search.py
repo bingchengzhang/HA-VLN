@@ -6,6 +6,7 @@
       8 邻接建图，边权 = 几何长度 ×（1 + 平均附加代价 / scale），用 scipy 的 Dijkstra 一次求完。
       这和对每个目标跑 A* 结果一样，但候选多时快得多。
 """
+
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -15,7 +16,7 @@ from scipy.sparse.csgraph import dijkstra
 
 from ..mapping.costmap import Costmap
 
-COST_SCALE = 5.0   # 附加代价 20 时，走这一格相当于多走 4 倍路
+COST_SCALE = 5.0  # 附加代价 20 时，走这一格相当于多走 4 倍路
 
 
 @dataclass
@@ -25,7 +26,7 @@ class PlanGrid:
     cost: np.ndarray
     unknown: np.ndarray
     human_dist: np.ndarray
-    dist_wall: np.ndarray       # 到墙距离（池化取最小，偏保守）
+    dist_wall: np.ndarray  # 到墙距离（池化取最小，偏保守）
     human_lethal: np.ndarray
     factor: int
     cm: Costmap
@@ -55,10 +56,17 @@ def _pool(a, f, how):
 
 def make_plan_grid(cm: Costmap, plan_res: float) -> PlanGrid:
     f = max(1, int(round(plan_res / cm.res)))
-    return PlanGrid(lethal=_pool(cm.lethal, f, "any"), wall_lethal=_pool(cm.wall_lethal, f, "any"), cost=_pool(cm.cost, f, "max"),
-                    unknown=_pool(cm.unknown, f, "all"), human_dist=_pool(cm.human_dist, f, "min"),
-                    dist_wall=_pool(cm.dist_wall, f, "min"), human_lethal=_pool(cm.human_lethal, f, "any"),
-                    factor=f, cm=cm)
+    return PlanGrid(
+        lethal=_pool(cm.lethal, f, "any"),
+        wall_lethal=_pool(cm.wall_lethal, f, "any"),
+        cost=_pool(cm.cost, f, "max"),
+        unknown=_pool(cm.unknown, f, "all"),
+        human_dist=_pool(cm.human_dist, f, "min"),
+        dist_wall=_pool(cm.dist_wall, f, "min"),
+        human_lethal=_pool(cm.human_lethal, f, "any"),
+        factor=f,
+        cm=cm,
+    )
 
 
 def escape_mask(grid: PlanGrid, x, y) -> np.ndarray:
@@ -87,8 +95,8 @@ def escape_mask(grid: PlanGrid, x, y) -> np.ndarray:
 @dataclass
 class PathField:
     grid: PlanGrid
-    dist: np.ndarray        # (h, w) 从起点出发的加权距离，到不了为 inf
-    pred: np.ndarray        # (h*w,) 前驱节点
+    dist: np.ndarray  # (h, w) 从起点出发的加权距离，到不了为 inf
+    pred: np.ndarray  # (h*w,) 前驱节点
     start: Tuple[int, int]
 
 
@@ -98,7 +106,7 @@ def shortest_paths(grid: PlanGrid, start_xy) -> PathField:
     si, sj = min(max(si, 0), h - 1), min(max(sj, 0), w - 1)
     free = ~grid.lethal
     # 起点可能因为贴近障碍落在禁区里：放开起点附近一圈，让 agent 能先退出来
-    free[max(si - 1, 0):si + 2, max(sj - 1, 0):sj + 2] = True
+    free[max(si - 1, 0) : si + 2, max(sj - 1, 0) : sj + 2] = True
     free |= escape_mask(grid, *start_xy)
 
     idx = np.arange(h * w).reshape(h, w)
@@ -115,7 +123,9 @@ def shortest_paths(grid: PlanGrid, start_xy) -> PathField:
         rows += [idx[a][m], idx[b][m]]
         cols += [idx[b][m], idx[a][m]]
         wts += [wt[m], wt[m]]
-    graph = csr_matrix((np.concatenate(wts), (np.concatenate(rows), np.concatenate(cols))), shape=(h * w, h * w))
+    graph = csr_matrix(
+        (np.concatenate(wts), (np.concatenate(rows), np.concatenate(cols))), shape=(h * w, h * w)
+    )
     dist, pred = dijkstra(graph, indices=si * w + sj, return_predecessors=True)
     return PathField(grid, dist.reshape(h, w), pred, (si, sj))
 

@@ -2,6 +2,7 @@
 
 运行：python3 tests/test_mapping.py   （也兼容 pytest）
 """
+
 import math
 import os
 import sys
@@ -10,8 +11,16 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from havln_agent.config import AgentCfg
-from havln_agent.mapping import (backproject, points_to_scan, depth_to_scan, StaticLayer, denormalize_depth,
-                                 build_costmap, OCCUPIED, FREE)
+from havln_agent.mapping import (
+    FREE,
+    OCCUPIED,
+    StaticLayer,
+    backproject,
+    build_costmap,
+    denormalize_depth,
+    depth_to_scan,
+    points_to_scan,
+)
 
 
 def synth_depth(cfg, wall_dist=None, pitch=0.0, size=None):
@@ -22,12 +31,11 @@ def synth_depth(cfg, wall_dist=None, pitch=0.0, size=None):
     s = cfg.sensor
     w = h = size or s.img_width
     f = cfg.focal_px * (w / s.img_width)
-    rows, cols = np.mgrid[0:h, 0:w]
-    xr = (cols - (w - 1) / 2) / f
+    rows = np.arange(h)[:, None]
     yd = (rows - (h - 1) / 2) / f
     cp, sp = math.cos(pitch), math.sin(pitch)
-    fwd_per_z = cp + yd * sp            # 每单位 z 的水平前向分量
-    up_per_z = sp - yd * cp             # 每单位 z 的高度变化
+    fwd_per_z = cp + yd * sp  # 每单位 z 的水平前向分量
+    up_per_z = sp - yd * cp  # 每单位 z 的高度变化
     z = np.full((h, w), s.max_depth)
     with np.errstate(divide="ignore", invalid="ignore"):
         z_floor = np.where(up_per_z < 0, -s.camera_height / up_per_z, np.inf)
@@ -74,8 +82,8 @@ def test_human_pixels_block_but_do_not_hit():
     depth = synth_depth(cfg, wall_dist=4.0)
     d_m = depth * cfg.sensor.max_depth
     mask = np.zeros_like(d_m, dtype=bool)
-    mask[60:200, 118:138] = True                     # 画面中央一个人
-    d_m[mask] = 1.5                                  # 人站在 1.5 m 处
+    mask[60:200, 118:138] = True  # 画面中央一个人
+    d_m[mask] = 1.5  # 人站在 1.5 m 处
     scan = points_to_scan(backproject(d_m, cfg, 0.0), cfg, human_mask=mask)
     center = np.abs(scan.bearings) < math.radians(2)
     assert center.any()
@@ -86,8 +94,7 @@ def test_human_pixels_block_but_do_not_hit():
 
 
 # ---------------------------------------------------------------- 高程图
-from tests.fixtures.box_scene import BoxScene, stairs_scene, stairs_blocks
-from havln_agent.mapping import UNKNOWN
+from tests.fixtures.box_scene import BoxScene, stairs_scene
 
 
 def observe(layer, scene, cfg, poses):
@@ -121,12 +128,16 @@ def window_class(layer, x, y, r=0.06):
     g, i0, j0 = _classified(layer, x, y)
     a0, b0 = layer.world_to_cell(x - r, y - r)
     a1, b1 = layer.world_to_cell(x + r, y + r)
-    return g[a0 - i0:a1 - i0 + 1, b0 - j0:b1 - j0 + 1]
+    return g[a0 - i0 : a1 - i0 + 1, b0 - j0 : b1 - j0 + 1]
 
 
 def corridor(cfg, blocks=(), length=8.0):
-    walls = [((-1.0, -0.8), (length, -0.8)), ((-1.0, 0.8), (length, 0.8)),
-             ((-1.0, -0.8), (-1.0, 0.8)), ((length, -0.8), (length, 0.8))]
+    walls = [
+        ((-1.0, -0.8), (length, -0.8)),
+        ((-1.0, 0.8), (length, 0.8)),
+        ((-1.0, -0.8), (-1.0, 0.8)),
+        ((length, -0.8), (length, 0.8)),
+    ]
     return BoxScene(cfg, walls, blocks=blocks)
 
 
@@ -146,8 +157,8 @@ def test_stairs_up_are_walkable():
     scene = stairs_scene(cfg)
     layer = StaticLayer(cfg)
     observe(layer, scene, cfg, [(0.0, 0.0, 0.0), (0.75, 0.0, 0.0), (1.5, 0.0, 0.0)])
-    for k in (0, 1, 2, 3):                              # 更高的台阶接近相机高度，从楼下看不全，属于正常
-        x = 2.0 + k * 0.28 + 0.14                       # 第 k 级台阶面中央
+    for k in (0, 1, 2, 3):  # 更高的台阶接近相机高度，从楼下看不全，属于正常
+        x = 2.0 + k * 0.28 + 0.14  # 第 k 级台阶面中央
         assert cell_class(layer, x, 0.0) == FREE, f"第 {k} 级台阶被判为 {cell_class(layer, x, 0.0)}"
         assert abs(layer.ground_height(x, 0.0) - (k + 1) * 0.18) < 0.03
     assert (window_class(layer, 3.0, 0.8) == OCCUPIED).any(), "楼梯两侧的墙应仍是障碍"
@@ -156,9 +167,11 @@ def test_stairs_up_are_walkable():
 def test_table_and_box_are_obstacles():
     """悬空桌面（下面能看到地面）与实心矮柜（0.5 m）都必须是障碍；0.15 m 的门槛可以跨过去。"""
     cfg = AgentCfg()
-    blocks = [(2.0, -0.3, 2.6, 0.3, 0.70, 0.75),        # 桌面
-              (4.0, -0.3, 4.4, 0.3, 0.0, 0.50),         # 矮柜
-              (5.5, -0.8, 5.6, 0.8, 0.0, 0.15)]         # 门槛
+    blocks = [
+        (2.0, -0.3, 2.6, 0.3, 0.70, 0.75),  # 桌面
+        (4.0, -0.3, 4.4, 0.3, 0.0, 0.50),  # 矮柜
+        (5.5, -0.8, 5.6, 0.8, 0.0, 0.15),
+    ]  # 门槛
     scene = corridor(cfg, blocks)
     layer = StaticLayer(cfg)
     observe(layer, scene, cfg, [(0.0, 0.0, 0.0), (1.0, 0.5, 0.0), (1.0, -0.5, 0.0), (3.2, 0.5, 0.0)])
@@ -181,13 +194,18 @@ def test_stairs_down_walkable_from_top():
     """站在二层平台上往下看楼梯：走近楼梯口并低头看一眼后，下行台阶不应被当成断崖。"""
     cfg = AgentCfg()
     # 楼梯沿 −x 方向下降：平台在 x∈[4,7]，高 1.8；台阶从 x=4 往 x=1.2 逐级降低
-    blocks = [(4.0, -0.8, 7.0, 0.8, 0.0, 1.8)] + \
-             [(4.0 - (k + 1) * 0.28, -0.8, 4.0, 0.8, 0.0, 1.8 - (k + 1) * 0.18) for k in range(9)]
+    blocks = [(4.0, -0.8, 7.0, 0.8, 0.0, 1.8)] + [
+        (4.0 - (k + 1) * 0.28, -0.8, 4.0, 0.8, 0.0, 1.8 - (k + 1) * 0.18) for k in range(9)
+    ]
     scene = corridor(cfg, blocks)
     layer = StaticLayer(cfg)
     down = -math.radians(cfg.sensor.tilt_deg)
-    observe(layer, scene, cfg, [(6.0, 0.0, math.pi), (5.0, 0.0, math.pi), (4.5, 0.0, math.pi),
-                                (4.5, 0.0, math.pi, down)])
+    observe(
+        layer,
+        scene,
+        cfg,
+        [(6.0, 0.0, math.pi), (5.0, 0.0, math.pi), (4.5, 0.0, math.pi), (4.5, 0.0, math.pi, down)],
+    )
     for k in (1, 3):
         x = 4.0 - (k + 1) * 0.28 + 0.14
         assert cell_class(layer, x, 0.0) == FREE, f"下行第 {k + 1} 级被判为 {cell_class(layer, x, 0.0)}"

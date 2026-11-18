@@ -4,6 +4,7 @@
 yaw：以 +x 为 0、逆时针为正。TURN_LEFT 使 yaw 增加 15°。
 agent 坐标系：forward 向前、left 向左。
 """
+
 import math
 
 import numpy as np
@@ -43,8 +44,8 @@ def world_to_agent(pose, wx, wy):
 
 def bearing_to(pose, wx, wy):
     """从 agent 看点 (wx, wy) 的方位角，正前方为 0、向左为正。"""
-    f, l = world_to_agent(pose, wx, wy)
-    return math.atan2(float(l), float(f))
+    forward, left = world_to_agent(pose, wx, wy)
+    return math.atan2(float(left), float(forward))
 
 
 # ---------- 四元数（不依赖 numpy-quaternion，单元测试也能跑）----------
@@ -53,7 +54,7 @@ def _as_wxyz(q):
         return np.array([q.w, q.x, q.y, q.z], dtype=float)
     q = np.asarray(q, dtype=float)
     if q.shape == (4,):
-        return np.array([q[3], q[0], q[1], q[2]])   # habitat 的 coeffs 顺序是 [x, y, z, w]
+        return np.array([q[3], q[0], q[1], q[2]])  # habitat 的 coeffs 顺序是 [x, y, z, w]
     raise ValueError(f"无法识别的四元数: {q}")
 
 

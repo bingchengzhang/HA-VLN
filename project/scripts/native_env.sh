@@ -32,7 +32,7 @@ if [ "$GPU" = "none" ]; then
   return 0
 fi
 if [ -z "$GPU" ]; then
-  read -r -p '师兄分给你的物理 GPU 编号: ' GPU
+  read -r -p '物理 GPU 编号: ' GPU
 fi
 if [[ "$GPU" =~ ^[0-9]+$ ]]; then
   export GPU CUDA_VISIBLE_DEVICES=$GPU     # 进程只看得到这一张卡，程序里的 --gpu 0 就是它

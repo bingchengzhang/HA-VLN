@@ -4,24 +4,34 @@
 输出不合格（不是 JSON、编号不存在）重试一次；仍不行就退回"选和上次方向最接近的候选"，
 保证 agent 不会因为大模型出错而卡住。
 """
+
 import json
-import math
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 from ..config import AgentCfg
 from ..geometry import wrap
 from .llm_client import ChatClient, LLMError, extract_json
-from .prompts import COMPILE_SYSTEM, compile_user, DECIDE_SYSTEM, decide_user
+from .prompts import COMPILE_SYSTEM, DECIDE_SYSTEM, compile_user, decide_user
 
 
 # ---------------- 指令拆解（离线） ----------------
 def fallback_plan(instruction: str) -> dict:
     """拆解失败时的兜底：整条指令当成一个子目标。"""
-    return {"subgoals": [{"id": 0, "action": "go_straight", "landmark": "the goal described in the instruction",
-                          "ref_human": False, "done_when": "the final location of the instruction is reached"}],
-            "goal": {"landmark": "the final location", "relation": "stop at"}, "fallback": True}
+    return {
+        "subgoals": [
+            {
+                "id": 0,
+                "action": "go_straight",
+                "landmark": "the goal described in the instruction",
+                "ref_human": False,
+                "done_when": "the final location of the instruction is reached",
+            }
+        ],
+        "goal": {"landmark": "the final location", "relation": "stop at"},
+        "fallback": True,
+    }
 
 
 def validate_plan(plan: dict) -> dict:
@@ -32,19 +42,35 @@ def validate_plan(plan: dict) -> dict:
     for k, sg in enumerate(sgs):
         if not isinstance(sg, dict):
             raise ValueError("subgoal 不是对象")
-        clean.append({"id": k, "action": str(sg.get("action", "")), "landmark": str(sg.get("landmark", "")),
-                      "ref_human": bool(sg.get("ref_human", False)), "done_when": str(sg.get("done_when", ""))})
+        clean.append(
+            {
+                "id": k,
+                "action": str(sg.get("action", "")),
+                "landmark": str(sg.get("landmark", "")),
+                "ref_human": bool(sg.get("ref_human", False)),
+                "done_when": str(sg.get("done_when", "")),
+            }
+        )
     goal = plan.get("goal") or {}
-    return {"subgoals": clean, "goal": {"landmark": str(goal.get("landmark", clean[-1]["landmark"])),
-                                        "relation": str(goal.get("relation", "stop at"))}}
+    return {
+        "subgoals": clean,
+        "goal": {
+            "landmark": str(goal.get("landmark", clean[-1]["landmark"])),
+            "relation": str(goal.get("relation", "stop at")),
+        },
+    }
 
 
 def compile_instruction(client: ChatClient, instruction: str) -> dict:
     """第二次尝试不读缓存：第一次的回复要是被截断了，读缓存只会拿回同一份坏回复。"""
     for attempt in range(2):
         try:
-            text = client.chat(COMPILE_SYSTEM, compile_user(instruction),
-                               max_tokens=client.cfg.compile_max_tokens, use_cache=attempt == 0)
+            text = client.chat(
+                COMPILE_SYSTEM,
+                compile_user(instruction),
+                max_tokens=client.cfg.compile_max_tokens,
+                use_cache=attempt == 0,
+            )
             return validate_plan(extract_json(text))
         except (ValueError, LLMError):
             continue
@@ -93,16 +119,22 @@ class Decision:
     choose: Optional[int]
     subgoal_done: bool
     stop: bool
-    goal_side: str         # 目标在画面的左/中/右（没有 goal_box 时的退路）
+    goal_side: str  # 目标在画面的左/中/右（没有 goal_box 时的退路）
     reason: str
-    source: str            # "llm" / "fallback" / "gate" / "expert" ...
-    goal_box: Optional[list] = None    # 停止时目标在当前画面里的像素框 [x1, y1, x2, y2]（image_side 尺度）
-    observe: Optional[str] = None      # "left" / "right" / "behind"：候选都不对，先转过去看
+    source: str  # "llm" / "fallback" / "gate" / "expert" ...
+    goal_box: Optional[list] = None  # 停止时目标在当前画面里的像素框 [x1, y1, x2, y2]（image_side 尺度）
+    observe: Optional[str] = None  # "left" / "right" / "behind"：候选都不对，先转过去看
 
     def to_json(self) -> dict:
         """训练标签与模型输出用同一个格式。"""
-        return {"choose": self.choose, "observe": self.observe, "subgoal_done": self.subgoal_done,
-                "stop": self.stop, "goal_box": self.goal_box, "reason": self.reason}
+        return {
+            "choose": self.choose,
+            "observe": self.observe,
+            "subgoal_done": self.subgoal_done,
+            "stop": self.stop,
+            "goal_box": self.goal_box,
+            "reason": self.reason,
+        }
 
 
 class SlowLoop:
@@ -110,19 +142,44 @@ class SlowLoop:
         self.cfg = cfg
         self.client = client
 
-    def build_text(self, instruction, plan, sub_idx, cands, humans, step, traveled_m, captions, with_images,
-                   note=None):
+    def build_text(
+        self, instruction, plan, sub_idx, cands, humans, step, traveled_m, captions, with_images, note=None
+    ):
         """推理和生成训练数据共用同一份 prompt，保证训练和使用时模型看到的格式一致。"""
         summaries = [c.summary() for c in cands]
-        return decide_user(instruction, plan, sub_idx, summaries, humans, step, self.cfg.max_steps,
-                           traveled_m, captions if with_images else [], note)
+        return decide_user(
+            instruction,
+            plan,
+            sub_idx,
+            summaries,
+            humans,
+            step,
+            self.cfg.max_steps,
+            traveled_m,
+            captions if with_images else [],
+            note,
+        )
 
-    def decide(self, instruction, plan, sub_idx, cands, humans, step, traveled_m,
-               images=None, captions=None, prev_yaw=None, allow_observe=True, note=None) -> Decision:
+    def decide(
+        self,
+        instruction,
+        plan,
+        sub_idx,
+        cands,
+        humans,
+        step,
+        traveled_m,
+        images=None,
+        captions=None,
+        prev_yaw=None,
+        allow_observe=True,
+        note=None,
+    ) -> Decision:
         """allow_observe=False：上一次决策已经是"转过去看"，这次必须在候选里选（防止原地来回看）。"""
         with_images = bool(images) and self.cfg.slow.supports_images
-        text = self.build_text(instruction, plan, sub_idx, cands, humans, step, traveled_m, captions, with_images,
-                               note)
+        text = self.build_text(
+            instruction, plan, sub_idx, cands, humans, step, traveled_m, captions, with_images, note
+        )
         valid_ids = {c.cid for c in cands}
         if self.client is not None:
             for _ in range(1 + self.cfg.slow.retries):
@@ -138,7 +195,7 @@ class SlowLoop:
     def _parse(self, out: dict, valid_ids, allow_observe=True) -> Optional[Decision]:
         stop, sub_done = _as_bool(out.get("stop", False)), _as_bool(out.get("subgoal_done", False))
         if stop is None or sub_done is None:
-            return None                         # "maybe" 之类：不合格，重试
+            return None  # "maybe" 之类：不合格，重试
         choose = out.get("choose", None)
         if choose is not None:
             try:
@@ -152,7 +209,7 @@ class SlowLoop:
         if observe not in (None, "left", "right", "behind") or (observe and not allow_observe):
             observe = None
         if choose is None and not stop and not observe and valid_ids:
-            return None                         # 既不选、也不停、也不看：不合格，重试
+            return None  # 既不选、也不停、也不看：不合格，重试
         box = self._parse_box(out.get("goal_box"))
         side = "none"
         if stop:
@@ -160,9 +217,16 @@ class SlowLoop:
             if box is not None:
                 cx = (box[0] + box[2]) / 2 / self.cfg.slow.image_side
                 side = "left" if cx < 1 / 3 else ("right" if cx > 2 / 3 else "center")
-        return Decision(choose, sub_done, stop, side,
-                        str(out.get("reason", ""))[:200], "llm", goal_box=box,
-                        observe=None if (stop or choose is not None) else observe)
+        return Decision(
+            choose,
+            sub_done,
+            stop,
+            side,
+            str(out.get("reason", ""))[:200],
+            "llm",
+            goal_box=box,
+            observe=None if (stop or choose is not None) else observe,
+        )
 
     def _parse_box(self, box) -> Optional[list]:
         try:
